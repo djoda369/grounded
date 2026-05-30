@@ -1,17 +1,52 @@
 import os
 
-from dotenv import load_dotenv
-from openai import OpenAI
-
-from langchain_openai import OpenAIEmbeddings
 from pydantic import BaseModel
 
 from core.gpt.history import History
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv():
+        return False
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
+    from langchain_openai import OpenAIEmbeddings
+except ImportError:
+    OpenAIEmbeddings = None
+
 load_dotenv()
 
-openai_client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
-openai_embeddings = OpenAIEmbeddings()
+openai_client = None
+openai_embeddings = None
+
+
+def get_openai_client():
+    global openai_client
+    if openai_client is not None:
+        return openai_client
+    if OpenAI is None:
+        raise RuntimeError("The openai package is not installed.")
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is required for LLM calls.")
+    openai_client = OpenAI(api_key=api_key)
+    return openai_client
+
+
+def get_openai_embeddings():
+    global openai_embeddings
+    if openai_embeddings is not None:
+        return openai_embeddings
+    if OpenAIEmbeddings is None:
+        raise RuntimeError("The langchain_openai package is not installed.")
+    openai_embeddings = OpenAIEmbeddings()
+    return openai_embeddings
 
 
 def llm_question(query):
@@ -23,7 +58,7 @@ def llm_question(query):
 
 def llm_chat(message_log: History, model_name: str = "gpt-4o"):
     # Use OpenAI's ChatCompletion API to get the chatbot's response
-    response = openai_client.chat.completions.create(
+    response = get_openai_client().chat.completions.create(
         model=model_name,  # The name of the OpenAI chatbot model to use
         messages=message_log.logs,   # The conversation history up to this point, as a list of dictionaries
         max_tokens=3000,        # The maximum number of tokens (words or subwords) in the generated response
@@ -43,7 +78,7 @@ def llm_chat(message_log: History, model_name: str = "gpt-4o"):
 def llm_stream(history, model_name: str = "gpt-4o"):
 
     # Initialize the stream
-    stream = openai_client.chat.completions.create(
+    stream = get_openai_client().chat.completions.create(
         model=model_name,  # Adjust model as needed
         messages=history.logs,
         stream=True  # Enable streaming
@@ -53,7 +88,7 @@ def llm_stream(history, model_name: str = "gpt-4o"):
 
 
 def llm_strict(history: History, model_name: str, base_model: type):
-    completion = openai_client.beta.chat.completions.parse(
+    completion = get_openai_client().beta.chat.completions.parse(
         model=model_name,
         messages=history.logs,
         response_format=base_model,

@@ -8,6 +8,7 @@ class JSONVault(DataVault):
 
     def __init__(self, user_id: str, path: str):
         super().__init__(user_id)
+        os.makedirs(path, exist_ok=True)
         self.path = os.path.join(path, user_id + ".json").replace("\\", "/")
         if os.path.exists(self.path):
             self._restore()

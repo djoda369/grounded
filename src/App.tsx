@@ -84,6 +84,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import {
+  buildBaselineEvidenceText,
+  buildPhase1Payload,
+  fileToUploadedEvidence,
+  mapPhase1ToFrontend,
+  requestPhase1Analysis,
+  type AnalysisState,
+  type UploadedEvidence,
+} from "@/lib/phase1-api";
 
 const fiveCTabs: Array<{ key: FiveCTab; label: string; icon: typeof Building2 }> = [
   { key: "summary", label: "Executive Summary", icon: Layers3 },
@@ -114,6 +123,8 @@ function App() {
   const [jobToBeDone, setJobToBeDone] = useState(strategicShifts.job);
   const [goals, setGoals] = useState<SustainabilityGoal[]>(initialGoals);
   const [rec, setRec] = useState(recommendation);
+  const [analysisState, setAnalysisState] = useState<AnalysisState>({ status: "idle", message: "" });
+  const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence[]>([]);
 
   const flagshipCount = goals.filter((goal) => goal.flagship).length;
   const averageConfidence = Math.round(
@@ -159,11 +170,48 @@ function App() {
     announce("PDF export generated for the current Yoplait diagnostic.");
   }
 
-  function reanalyze(label: string) {
-    const note = context.trim()
-      ? `Reanalyzed ${label} using the added context: "${context.trim()}".`
-      : `Reanalyzed ${label} with the current selected evidence set.`;
-    announce(note);
+  async function reanalyze(label: string) {
+    setAnalysisState({ status: "loading", message: `Analyzing ${label} with the Phase 1 backend.` });
+    try {
+      const fallbackText = buildBaselineEvidenceText(profile, jobToBeDone, goals, gapDrafts);
+      const payload = buildPhase1Payload(profile.market, context, uploadedEvidence, fallbackText);
+      const analysis = await requestPhase1Analysis(payload);
+      const mapped = mapPhase1ToFrontend(analysis, profile);
+
+      setGapDrafts(mapped.gaps);
+      setProfile(mapped.profile);
+      setJobToBeDone(mapped.jobToBeDone);
+      setRec(mapped.recommendation);
+      if (mapped.goals.length) {
+        setGoals(mapped.goals);
+      }
+      setPage("iag");
+      setActiveGap("summary");
+      setAnalysisState({ status: "ready", message: `Live backend analysis applied to ${label}.` });
+    } catch (error) {
+      setAnalysisState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Phase 1 backend analysis failed.",
+      });
+    }
+  }
+
+  async function uploadEvidence(files: FileList | null) {
+    if (!files?.length) return;
+    setAnalysisState({ status: "loading", message: "Preparing uploaded evidence." });
+    try {
+      const uploads = await Promise.all(Array.from(files).map(fileToUploadedEvidence));
+      setUploadedEvidence((current) => {
+        const existing = new Set(current.map((item) => item.id));
+        return [...current, ...uploads.filter((item) => !existing.has(item.id))];
+      });
+      setAnalysisState({ status: "idle", message: "" });
+    } catch (error) {
+      setAnalysisState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not prepare uploaded evidence.",
+      });
+    }
   }
 
   function updateGap(key: FiveCTab, patch: Partial<GapInsight>) {
@@ -224,6 +272,11 @@ function App() {
             setContext={setContext}
             onExport={exportPdf}
             onReanalyze={() => reanalyze(page === "iag" ? "the IAG conclusion" : "the current module")}
+            isAnalyzing={analysisState.status === "loading"}
+            analysisState={analysisState}
+            uploadedEvidence={uploadedEvidence}
+            onUploadEvidence={uploadEvidence}
+            onRemoveEvidence={(id) => setUploadedEvidence((current) => current.filter((item) => item.id !== id))}
             onSummarize={() => {
               setPage("iag");
               setActiveGap("summary");
@@ -305,6 +358,11 @@ type SidebarProps = {
   setContext: (value: string) => void;
   onExport: () => void;
   onReanalyze: () => void;
+  isAnalyzing: boolean;
+  analysisState: AnalysisState;
+  uploadedEvidence: UploadedEvidence[];
+  onUploadEvidence: (files: FileList | null) => void;
+  onRemoveEvidence: (id: string) => void;
   onSummarize: () => void;
   onGenerateGoals: () => void;
 };
@@ -318,6 +376,11 @@ function Sidebar({
   setContext,
   onExport,
   onReanalyze,
+  isAnalyzing,
+  analysisState,
+  uploadedEvidence,
+  onUploadEvidence,
+  onRemoveEvidence,
   onSummarize,
   onGenerateGoals,
 }: SidebarProps) {
@@ -405,10 +468,55 @@ function Sidebar({
               placeholder="Paste additional context..."
               className="min-h-[120px]"
             />
-            <Button className="w-full justify-start" variant="secondary" onClick={onReanalyze}>
-              <RefreshCw />
-              {page === "sustainability" ? "Generate new goals" : "Reanalyze conclusion"}
+            <div className="space-y-2 rounded-md border border-border bg-card p-3">
+              <input
+                id="evidence-upload"
+                type="file"
+                multiple
+                accept=".txt,.md,.csv,.json,.docx,.pdf"
+                className="sr-only"
+                onChange={(event) => {
+                  onUploadEvidence(event.target.files);
+                  event.target.value = "";
+                }}
+              />
+              <Button asChild className="w-full justify-start" variant="outline">
+                <label htmlFor="evidence-upload">
+                  <Upload />
+                  Upload evidence
+                </label>
+              </Button>
+              {uploadedEvidence.length > 0 && (
+                <div className="space-y-1">
+                  {uploadedEvidence.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1 text-xs">
+                      <span className="truncate">{item.source}</span>
+                      <Button
+                        aria-label={`Remove ${item.source}`}
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        onClick={() => onRemoveEvidence(item.id)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Button className="w-full justify-start" variant="secondary" onClick={onReanalyze} disabled={isAnalyzing}>
+              <RefreshCw className={cn(isAnalyzing && "animate-spin")} />
+              {isAnalyzing ? "Analyzing..." : page === "sustainability" ? "Analyze goals" : "Run backend analysis"}
             </Button>
+            {analysisState.status === "error" && (
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive">
+                {analysisState.message}
+              </p>
+            )}
+            {analysisState.status === "ready" && (
+              <p className="text-xs leading-5 text-muted-foreground">Live backend analysis applied.</p>
+            )}
           </div>
         )}
 

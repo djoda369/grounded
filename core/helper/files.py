@@ -1,17 +1,22 @@
 import json
+import os
 import re
+import tempfile
 
 
 def write_to_file(path, data):
-    # Open a file in write mode
+    _ensure_parent(path)
     with open(path, "w", encoding="utf-8") as file:
-        # Write each item in the list to the file
         file.write(data)
 
 
 def json_write_file(path, data):
-    with open(path, 'w', encoding='utf-8') as file:
+    _ensure_parent(path)
+    directory = os.path.dirname(path) or "."
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=directory, delete=False) as file:
         json.dump(data, file, indent=4)
+        temp_name = file.name
+    os.replace(temp_name, path)
 
 
 def read_file(file_path):
@@ -27,9 +32,11 @@ def read_file(file_path):
 
 def json_read_file(file_path):
     try:
-        with open(file_path, 'r') as file:
+        with open(file_path, 'r', encoding='utf-8') as file:
             return json.load(file)
     except FileNotFoundError:
+        return None
+    except json.JSONDecodeError:
         return None
 
 
@@ -61,3 +68,9 @@ def process_double_newlines(content):
     while '\n\n' in content:
         content = content.replace('\n\n', '\n')
     return content
+
+
+def _ensure_parent(path):
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)

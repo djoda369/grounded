@@ -34,13 +34,14 @@ class LiteConversation(Conversation):
     def __init__(self, id: str):
         super().__init__(id, "lite")
         self.email_requested = self.vault.get("email_requested", False)
-        self.got_email = self.vault.get("got_emal", False)
+        self.got_email = self.vault.get("got_email", self.vault.get("got_emal", False))
 
     def has_email(self):
         return self.got_email
 
     def set_has_email(self, has_email):
         self.got_email = has_email
+        self.vault.set("got_email", self.got_email)
 
     def is_requested(self):
         return self.email_requested
