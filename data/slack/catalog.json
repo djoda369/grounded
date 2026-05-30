@@ -1,0 +1,48 @@
+{
+    "Intention Action Gap": {
+        "behavior change neuroscience": "data/topics/Intention_Action_Gap/behavior_change_neuroscience/slack.json",
+        "intention action gap": "data/topics/Intention_Action_Gap/intention_action_gap/slack.json",
+        "sustainable living - conscious culture and consumerism": "data/topics/Intention_Action_Gap/sustainable_living_-_conscious_culture_and_consumerism/slack.json"
+    },
+    "Sustainagility": {
+        "brand purpose": "data/topics/Sustainagility/brand_purpose/slack.json",
+        "circularity ": "data/topics/Sustainagility/circularity/slack.json",
+        "climate change": "data/topics/Sustainagility/climate_change/slack.json",
+        "conservation - biodiversity - ecosystems": "data/topics/Sustainagility/conservation_-_biodiversity_-_ecosystems/slack.json",
+        "food waste systems and resilience": "data/topics/Sustainagility/food_waste_systems_and_resilience/slack.json",
+        "greenwashing": "data/topics/Sustainagility/greenwashing/slack.json",
+        "plant based and regen food": "data/topics/Sustainagility/plant_based_and_regen_food/slack.json",
+        "plastic waste policy and pollution": "data/topics/Sustainagility/plastic_waste_policy_and_pollution/slack.json",
+        "regenerative business and agriculture": "data/topics/Sustainagility/regenerative_business_and_agriculture/slack.json",
+        "sustainability narrative reporting": "data/topics/Sustainagility/sustainability_narrative_reporting/slack.json",
+        "sustainability and social impact campaigns": "data/topics/Sustainagility/sustainability_and_social_impact_campaigns/slack.json",
+        "sustainability marketing and campaigns": "data/topics/Sustainagility/sustainability_marketing_and_campaigns/slack.json",
+        "recycling": "data/topics/Sustainagility/recycling/slack.json"
+    },
+    "Brand Activation for Good": {
+        "retail activation for good": "data/topics/Brand_Activation_for_Good/retail_activation_for_good/slack.json",
+        "retail insights": "data/topics/Brand_Activation_for_Good/retail_insights/slack.json",
+        "shopping trends and behavior": "data/topics/Brand_Activation_for_Good/shopping_trends_and_behavior/slack.json",
+        "social innovation and entrepreneurship": "data/topics/Brand_Activation_for_Good/social_innovation_and_entrepreneurship/slack.json",
+        "sustainable packaging and design": "data/topics/Brand_Activation_for_Good/sustainable_packaging_and_design/slack.json",
+        "ecomm omnichannel": "data/topics/Brand_Activation_for_Good/ecomm_omnichannel/slack.json",
+        "recommerce": "data/topics/Brand_Activation_for_Good/recommerce/slack.json",
+        "shared economy": "data/topics/Brand_Activation_for_Good/shared_economy/slack.json",
+        "startup social enterprise": "data/topics/Brand_Activation_for_Good/startup_social_enterprise/slack.json"
+    },
+    "Fly wheel of Impact": {
+        "Brand activism / Social justice / Storytelling": "data/topics/Fly_wheel_of_Impact/Brand_activism_-_Social_justice_-_Storytelling/slack.json",
+        "Brand partnerships": "data/topics/Fly_wheel_of_Impact/Brand_partnerships/slack.json",
+        "Conscious leadership": "data/topics/Fly_wheel_of_Impact/Conscious_leadership/slack.json",
+        "Giving and philanthropy": "data/topics/Fly_wheel_of_Impact/Giving_and_philanthropy/slack.json",
+        "Metaverse and gaming for good": "data/topics/Fly_wheel_of_Impact/Metaverse_and_gaming_for_good/slack.json",
+        "Non profits and fundraising": "data/topics/Fly_wheel_of_Impact/Non_profits_and_fundraising/slack.json",
+        "Social and influencer": "data/topics/Fly_wheel_of_Impact/Social_and_influencer/slack.json",
+        "Social impact campaigns": "data/topics/Fly_wheel_of_Impact/Social_impact_campaigns/slack.json",
+        "Corporate partnerships": "data/topics/Fly_wheel_of_Impact/Corporate_partnerships/slack.json"
+    },
+    "thought leadership": "data/topics/thought_leadership/slack.json",
+    "trends and reports": "data/topics/trends_and_reports/slack.json",
+    "SDGs": "data/topics/SDGs/slack.json",
+    "Sustainable Fashion": "data/topics/Sustainable_Fashion/slack.json"
+}
