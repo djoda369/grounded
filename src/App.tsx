@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -39,15 +39,15 @@ import {
 
 import {
   companyProfile,
-  competitors,
-  culturalDrivers,
-  consumerStages,
+  competitors as defaultCompetitors,
+  culturalDrivers as defaultCulturalDrivers,
+  consumerStages as defaultConsumerStages,
   gapInsights,
   initialGoals,
-  needStates,
+  needStates as defaultNeedStates,
   pageOptions,
   recommendation,
-  strategicShifts,
+  strategicShifts as defaultStrategicShifts,
   type EvidenceBlock,
   type FiveCTab,
   type GapInsight,
@@ -84,12 +84,25 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 import {
   buildBaselineEvidenceText,
-  buildPhase1Payload,
+  createProject,
+  deleteProjectDocument,
   fileToUploadedEvidence,
+  getProject,
+  listProjects,
   mapPhase1ToFrontend,
-  requestPhase1Analysis,
+  requestProjectAnalysis,
+  updateProject,
+  uploadProjectDocuments,
   type AnalysisState,
-  type UploadedEvidence,
+  type FrontendCompetitor,
+  type FrontendCultureDriver,
+  type FrontendConsumerStage,
+  type FrontendNeedState,
+  type FrontendStrategicShifts,
+  type ProjectBundle,
+  type ProjectDocument,
+  type ProjectSummary,
+  type WorkshopState,
 } from "@/lib/phase1-api";
 
 const fiveCTabs: Array<{ key: FiveCTab; label: string; icon: typeof Building2 }> = [
@@ -122,7 +135,7 @@ const pageIcons: Record<PageKey, typeof Layers3> = {
 };
 
 const pageLeads: Record<PageKey, string> = {
-  iag: "Intention-action gap evidence, confidence, and recommended moves for Yoplait UK.",
+  iag: "Intention-action gap evidence, confidence, and recommended moves from the live Phase 1 analysis.",
   fiveC: "Company, competition, culture, consumer, and category signals mapped into the strategic job.",
   sustainability: "Flagship commitments, goal mix, and nutrition impact opportunities.",
   next: "Recommended product direction and the outcome case behind the next move.",
@@ -143,20 +156,196 @@ function App() {
   const [activeFiveC, setActiveFiveC] = useState<FiveCTab>("summary");
   const [gapDrafts, setGapDrafts] = useState<Record<FiveCTab, GapInsight>>(() => cloneGaps());
   const [profile, setProfile] = useState(companyProfile);
-  const [jobToBeDone, setJobToBeDone] = useState(strategicShifts.job);
+  const [phase1Shifts, setPhase1Shifts] = useState<FrontendStrategicShifts>(() => structuredClone(defaultStrategicShifts));
+  const [competitorProfiles, setCompetitorProfiles] = useState<FrontendCompetitor[]>(() => structuredClone(defaultCompetitors));
+  const [cultureDrivers, setCultureDrivers] = useState<FrontendCultureDriver[]>(() => structuredClone(defaultCulturalDrivers));
+  const [consumerJourneyStages, setConsumerJourneyStages] = useState<FrontendConsumerStage[]>(() => structuredClone(defaultConsumerStages));
+  const [categoryNeedStates, setCategoryNeedStates] = useState<FrontendNeedState[]>(() => structuredClone(defaultNeedStates));
+  const [jobToBeDone, setJobToBeDone] = useState(defaultStrategicShifts.job);
   const [goals, setGoals] = useState<SustainabilityGoal[]>(initialGoals);
   const [rec, setRec] = useState(recommendation);
   const [analysisState, setAnalysisState] = useState<AnalysisState>({ status: "idle", message: "" });
-  const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState("");
+  const [projectDocuments, setProjectDocuments] = useState<ProjectDocument[]>([]);
+  const [projectLoading, setProjectLoading] = useState(true);
+  const didInitializeProjects = useRef(false);
 
   const flagshipCount = goals.filter((goal) => goal.flagship).length;
   const averageConfidence = Math.round(
     Object.values(gapDrafts).reduce((sum, gap) => sum + gap.confidence, 0) /
       Object.values(gapDrafts).length,
   );
+  const activeProject = projects.find((project) => project.id === activeProjectId);
+
+  useEffect(() => {
+    if (didInitializeProjects.current) return;
+    didInitializeProjects.current = true;
+    void initializeProjectWorkspace();
+  }, []);
 
   function announce(_message: string) {
     return;
+  }
+
+  async function initializeProjectWorkspace() {
+    setProjectLoading(true);
+    try {
+      let projectList = await listProjects();
+      if (!projectList.length) {
+        const created = await createProject({
+          name: "Yoplait UK",
+          company_name: "Yoplait UK",
+          brand: "Yoplait",
+        });
+        projectList = [created];
+      }
+
+      const selected = projectList[0];
+      setProjects(projectList);
+      setActiveProjectId(selected.id);
+      applyProjectBundle(await getProject(selected.id));
+      setAnalysisState({ status: "ready", message: "Project workspace loaded." });
+    } catch (error) {
+      setAnalysisState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not load persisted projects.",
+      });
+    } finally {
+      setProjectLoading(false);
+    }
+  }
+
+  function applyProjectBundle(bundle: ProjectBundle) {
+    let nextProfile = companyProfile;
+    let nextGaps = cloneGaps();
+    let nextGoals = initialGoals;
+    let nextRecommendation = recommendation;
+    let nextShifts = structuredClone(defaultStrategicShifts);
+    let nextCompetitors = structuredClone(defaultCompetitors);
+    let nextCultureDrivers = structuredClone(defaultCulturalDrivers);
+    let nextConsumerStages = structuredClone(defaultConsumerStages);
+    let nextNeedStates = structuredClone(defaultNeedStates);
+    let nextJobToBeDone = defaultStrategicShifts.job;
+    let nextPage: PageKey = "iag";
+
+    if (bundle.current_analysis?.analysis) {
+      const mapped = mapPhase1ToFrontend(bundle.current_analysis.analysis, nextProfile);
+      nextProfile = mapped.profile;
+      nextGaps = mapped.gaps;
+      nextGoals = mapped.goals.length ? mapped.goals : nextGoals;
+      nextRecommendation = mapped.recommendation;
+      nextShifts = mapped.strategicShifts;
+      nextCompetitors = mapped.competitors.length ? mapped.competitors : nextCompetitors;
+      nextCultureDrivers = mapped.culturalDrivers.length ? mapped.culturalDrivers : nextCultureDrivers;
+      nextConsumerStages = mapped.consumerStages.length ? mapped.consumerStages : nextConsumerStages;
+      nextNeedStates = mapped.needStates.length ? mapped.needStates : nextNeedStates;
+      nextJobToBeDone = mapped.jobToBeDone;
+    }
+
+    if (bundle.ui_state?.profile) nextProfile = bundle.ui_state.profile;
+    if (bundle.ui_state?.gaps) nextGaps = bundle.ui_state.gaps;
+    if (bundle.ui_state?.goals) nextGoals = bundle.ui_state.goals;
+    if (bundle.ui_state?.recommendation) nextRecommendation = bundle.ui_state.recommendation;
+    if (bundle.ui_state?.workshop) {
+      nextCompetitors = bundle.ui_state.workshop.competitors?.length ? bundle.ui_state.workshop.competitors : nextCompetitors;
+      nextCultureDrivers = bundle.ui_state.workshop.culture?.length ? bundle.ui_state.workshop.culture : nextCultureDrivers;
+      nextConsumerStages = bundle.ui_state.workshop.consumer?.length ? bundle.ui_state.workshop.consumer : nextConsumerStages;
+      nextNeedStates = bundle.ui_state.workshop.category?.length ? bundle.ui_state.workshop.category : nextNeedStates;
+      if (bundle.ui_state.workshop.strategic_shifts) nextShifts = bundle.ui_state.workshop.strategic_shifts;
+    }
+    if (bundle.ui_state?.job_to_be_done) nextJobToBeDone = bundle.ui_state.job_to_be_done;
+    if (bundle.ui_state?.active_page && isPageKey(bundle.ui_state.active_page)) {
+      nextPage = bundle.ui_state.active_page;
+    }
+
+    setProfile(nextProfile);
+    setGapDrafts(nextGaps);
+    setGoals(nextGoals);
+    setRec(nextRecommendation);
+    setPhase1Shifts(nextShifts);
+    setCompetitorProfiles(nextCompetitors);
+    setCultureDrivers(nextCultureDrivers);
+    setConsumerJourneyStages(nextConsumerStages);
+    setCategoryNeedStates(nextNeedStates);
+    setJobToBeDone(nextJobToBeDone);
+    setPage(nextPage);
+    setProjectDocuments(bundle.documents);
+  }
+
+  async function selectProject(projectId: string) {
+    if (!projectId || projectId === activeProjectId) return;
+    setProjectLoading(true);
+    try {
+      const bundle = await getProject(projectId);
+      setActiveProjectId(projectId);
+      applyProjectBundle(bundle);
+      setContext("");
+      setAnalysisState({ status: "ready", message: `${bundle.project.name} loaded.` });
+    } catch (error) {
+      setAnalysisState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not load project.",
+      });
+    } finally {
+      setProjectLoading(false);
+    }
+  }
+
+  function setWorkspacePage(nextPage: PageKey) {
+    setPage(nextPage);
+    if (!activeProjectId) return;
+    void updateProject(activeProjectId, { ui_state: { active_page: nextPage } }).catch((error) => {
+      setAnalysisState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not save active page.",
+      });
+    });
+  }
+
+  function currentUiState(activePage = page) {
+    return {
+      profile,
+      gaps: gapDrafts,
+      goals,
+      recommendation: rec,
+      workshop: currentWorkshopState(),
+      job_to_be_done: jobToBeDone,
+      active_page: activePage,
+    };
+  }
+
+  function currentWorkshopState(): WorkshopState {
+    return {
+      competitors: competitorProfiles,
+      culture: cultureDrivers,
+      consumer: consumerJourneyStages,
+      category: categoryNeedStates,
+      strategic_shifts: phase1Shifts,
+    };
+  }
+
+  async function refreshProjectList() {
+    setProjects(await listProjects());
+  }
+
+  async function saveCurrentProjectState(message = "Workspace saved.") {
+    if (!activeProjectId) {
+      setAnalysisState({ status: "error", message: "Create or select a project before saving." });
+      return;
+    }
+    setAnalysisState({ status: "loading", message: "Saving project workspace." });
+    try {
+      const bundle = await updateProject(activeProjectId, { ui_state: currentUiState() });
+      setProjectDocuments(bundle.documents);
+      await refreshProjectList();
+      setAnalysisState({ status: "ready", message });
+    } catch (error) {
+      setAnalysisState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not save project state.",
+      });
+    }
   }
 
   async function exportPdf() {
@@ -189,27 +378,59 @@ function App() {
     write(gapDrafts.summary.explanation, 10, 12);
     write("Recommended next steps", 12, 6);
     gapDrafts.summary.nextSteps.forEach((step, index) => write(`${index + 1}. ${step}`, 9, 4));
-    pdf.save("gaia-yoplait-iag-summary.pdf");
-    announce("PDF export generated for the current Yoplait diagnostic.");
+    pdf.save(`gaia-${slugify(profile.market)}-iag-summary.pdf`);
+    announce(`PDF export generated for the current ${profile.market} diagnostic.`);
   }
 
   async function reanalyze(label: string) {
+    if (!activeProjectId) {
+      setAnalysisState({ status: "error", message: "Create or select a project before running analysis." });
+      return;
+    }
     setAnalysisState({ status: "loading", message: `Analyzing ${label} with the Phase 1 backend.` });
     try {
       const fallbackText = buildBaselineEvidenceText(profile, jobToBeDone, goals, gapDrafts);
-      const payload = buildPhase1Payload(profile.market, context, uploadedEvidence, fallbackText);
-      const analysis = await requestPhase1Analysis(payload);
-      const mapped = mapPhase1ToFrontend(analysis, profile);
+      const analysisContext = context.trim() || (projectDocuments.length ? "" : fallbackText);
+      const workshopState = currentWorkshopState();
+      const result = await requestProjectAnalysis(activeProjectId, analysisContext, workshopState);
+      const mapped = mapPhase1ToFrontend(result.analysis, profile);
+      const nextGoals = mapped.goals.length ? mapped.goals : goals;
+      const nextCompetitors = workshopState.competitors.length ? workshopState.competitors : mapped.competitors;
+      const nextCultureDrivers = workshopState.culture.length ? workshopState.culture : mapped.culturalDrivers;
+      const nextConsumerStages = workshopState.consumer.length ? workshopState.consumer : mapped.consumerStages;
+      const nextNeedStates = workshopState.category.length ? workshopState.category : mapped.needStates;
+      const nextShifts = workshopState.strategic_shifts || mapped.strategicShifts;
 
       setGapDrafts(mapped.gaps);
       setProfile(mapped.profile);
       setJobToBeDone(mapped.jobToBeDone);
       setRec(mapped.recommendation);
-      if (mapped.goals.length) {
-        setGoals(mapped.goals);
-      }
+      setGoals(nextGoals);
+      setPhase1Shifts(nextShifts);
+      setCompetitorProfiles(nextCompetitors);
+      setCultureDrivers(nextCultureDrivers);
+      setConsumerJourneyStages(nextConsumerStages);
+      setCategoryNeedStates(nextNeedStates);
       setPage("iag");
       setActiveGap("summary");
+      await updateProject(activeProjectId, {
+        ui_state: {
+          profile: mapped.profile,
+          gaps: mapped.gaps,
+          goals: nextGoals,
+          recommendation: mapped.recommendation,
+          workshop: {
+            competitors: nextCompetitors,
+            culture: nextCultureDrivers,
+            consumer: nextConsumerStages,
+            category: nextNeedStates,
+            strategic_shifts: nextShifts,
+          },
+          job_to_be_done: mapped.jobToBeDone,
+          active_page: "iag",
+        },
+      });
+      await refreshProjectList();
       setAnalysisState({ status: "ready", message: `Live backend analysis applied to ${label}.` });
     } catch (error) {
       setAnalysisState({
@@ -221,18 +442,35 @@ function App() {
 
   async function uploadEvidence(files: FileList | null) {
     if (!files?.length) return;
-    setAnalysisState({ status: "loading", message: "Preparing uploaded evidence." });
+    if (!activeProjectId) {
+      setAnalysisState({ status: "error", message: "Create or select a project before uploading evidence." });
+      return;
+    }
+    setAnalysisState({ status: "loading", message: "Saving uploaded evidence to the project." });
     try {
       const uploads = await Promise.all(Array.from(files).map(fileToUploadedEvidence));
-      setUploadedEvidence((current) => {
-        const existing = new Set(current.map((item) => item.id));
-        return [...current, ...uploads.filter((item) => !existing.has(item.id))];
-      });
-      setAnalysisState({ status: "idle", message: "" });
+      setProjectDocuments(await uploadProjectDocuments(activeProjectId, uploads));
+      await refreshProjectList();
+      setAnalysisState({ status: "ready", message: "Evidence saved to the project." });
     } catch (error) {
       setAnalysisState({
         status: "error",
-        message: error instanceof Error ? error.message : "Could not prepare uploaded evidence.",
+        message: error instanceof Error ? error.message : "Could not save uploaded evidence.",
+      });
+    }
+  }
+
+  async function removeEvidence(documentId: string) {
+    if (!activeProjectId) return;
+    setAnalysisState({ status: "loading", message: "Removing project evidence." });
+    try {
+      setProjectDocuments(await deleteProjectDocument(activeProjectId, documentId));
+      await refreshProjectList();
+      setAnalysisState({ status: "ready", message: "Evidence removed from the project." });
+    } catch (error) {
+      setAnalysisState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not remove evidence.",
       });
     }
   }
@@ -251,6 +489,26 @@ function App() {
     setGoals((current) =>
       current.map((goal) => (goal.id === id ? { ...goal, ...patch } : goal)),
     );
+  }
+
+  function updateCompetitor(name: string, patch: Partial<FrontendCompetitor>) {
+    setCompetitorProfiles((current) => current.map((item) => (item.name === name ? { ...item, ...patch } : item)));
+  }
+
+  function updateCultureDriver(title: string, patch: Partial<FrontendCultureDriver>) {
+    setCultureDrivers((current) => current.map((item) => (item.title === title ? { ...item, ...patch } : item)));
+  }
+
+  function updateConsumerStage(stage: string, patch: Partial<FrontendConsumerStage>) {
+    setConsumerJourneyStages((current) => current.map((item) => (item.stage === stage ? { ...item, ...patch } : item)));
+  }
+
+  function updateNeedState(name: string, patch: Partial<FrontendNeedState>) {
+    setCategoryNeedStates((current) => current.map((item) => (item.name === name ? { ...item, ...patch } : item)));
+  }
+
+  function updateStrategicShifts(nextShifts: FrontendStrategicShifts) {
+    setPhase1Shifts(nextShifts);
   }
 
   function addNutritionGoal() {
@@ -283,7 +541,7 @@ function App() {
         <div className="mx-auto flex min-h-screen w-full max-w-[1680px] flex-col px-3 py-3 sm:px-5 lg:px-6">
           <WorkspaceTopbar
             page={page}
-            setPage={setPage}
+            setPage={setWorkspacePage}
             profile={profile}
             averageConfidence={averageConfidence}
             flagshipCount={flagshipCount}
@@ -291,23 +549,28 @@ function App() {
 
           <MobileControlPanel
             page={page}
-            setPage={setPage}
+            setPage={setWorkspacePage}
             editMode={editMode}
             setEditMode={(value) => {
               setEditMode(value);
               announce(value ? "Edit mode enabled." : "Presentation mode enabled.");
             }}
+            projects={projects}
+            activeProjectId={activeProjectId}
+            activeProject={activeProject}
+            onSelectProject={(projectId) => void selectProject(projectId)}
+            projectLoading={projectLoading}
             context={context}
             setContext={setContext}
             onExport={exportPdf}
             onReanalyze={() => reanalyze(page === "iag" ? "the IAG conclusion" : "the current module")}
             isAnalyzing={analysisState.status === "loading"}
             analysisState={analysisState}
-            uploadedEvidence={uploadedEvidence}
+            projectDocuments={projectDocuments}
             onUploadEvidence={uploadEvidence}
-            onRemoveEvidence={(id) => setUploadedEvidence((current) => current.filter((item) => item.id !== id))}
+            onRemoveEvidence={(id) => void removeEvidence(id)}
             onSummarize={() => {
-              setPage("iag");
+              setWorkspacePage("iag");
               setActiveGap("summary");
               announce("5C selections summarized into the IAG executive view.");
             }}
@@ -325,7 +588,7 @@ function App() {
                     setActiveGap={setActiveGap}
                     gaps={gapDrafts}
                     updateGap={updateGap}
-                    onSave={() => announce("IAG edits saved locally for the demo session.")}
+                    onSave={() => void saveCurrentProjectState("IAG edits saved to the project.")}
                   />
                 )}
                 {page === "fiveC" && (
@@ -337,16 +600,28 @@ function App() {
                     setProfile={setProfile}
                     jobToBeDone={jobToBeDone}
                     setJobToBeDone={setJobToBeDone}
+                    strategicShifts={phase1Shifts}
+                    competitors={competitorProfiles}
+                    culturalDrivers={cultureDrivers}
+                    consumerStages={consumerJourneyStages}
+                    needStates={categoryNeedStates}
+                    updateCompetitor={updateCompetitor}
+                    updateCultureDriver={updateCultureDriver}
+                    updateConsumerStage={updateConsumerStage}
+                    updateNeedState={updateNeedState}
+                    updateStrategicShifts={updateStrategicShifts}
                     onGenerateJob={() => {
-                      setJobToBeDone(strategicShifts.job);
+                      setJobToBeDone(phase1Shifts.job);
                       announce("Job to be Done generated from selected 5C signals.");
                     }}
                     onReanalyze={reanalyze}
+                    onSave={() => void saveCurrentProjectState("5C workspace saved to the project.")}
                   />
                 )}
                 {page === "sustainability" && (
                   <SustainabilityView
                     editMode={editMode}
+                    market={profile.market}
                     goals={goals}
                     updateGoal={updateGoal}
                     removeGoal={(id) => {
@@ -354,6 +629,7 @@ function App() {
                       announce("Sustainability goal removed from the active analysis set.");
                     }}
                     onGenerateGoals={addNutritionGoal}
+                    onSave={() => void saveCurrentProjectState("Sustainability edits saved to the project.")}
                   />
                 )}
                 {page === "next" && (
@@ -361,7 +637,7 @@ function App() {
                     editMode={editMode}
                     recommendation={rec}
                     setRecommendation={setRec}
-                    onSave={() => announce("Next-step recommendation updated.")}
+                    onSave={() => void saveCurrentProjectState("Next-step recommendation saved to the project.")}
                   />
                 )}
               </div>
@@ -369,23 +645,28 @@ function App() {
 
             <AnalysisDock
               page={page}
-              setPage={setPage}
+              setPage={setWorkspacePage}
               editMode={editMode}
               setEditMode={(value) => {
                 setEditMode(value);
                 announce(value ? "Edit mode enabled." : "Presentation mode enabled.");
               }}
+              projects={projects}
+              activeProjectId={activeProjectId}
+              activeProject={activeProject}
+              onSelectProject={(projectId) => void selectProject(projectId)}
+              projectLoading={projectLoading}
               context={context}
               setContext={setContext}
               onExport={exportPdf}
               onReanalyze={() => reanalyze(page === "iag" ? "the IAG conclusion" : "the current module")}
               isAnalyzing={analysisState.status === "loading"}
               analysisState={analysisState}
-              uploadedEvidence={uploadedEvidence}
+              projectDocuments={projectDocuments}
               onUploadEvidence={uploadEvidence}
-              onRemoveEvidence={(id) => setUploadedEvidence((current) => current.filter((item) => item.id !== id))}
+              onRemoveEvidence={(id) => void removeEvidence(id)}
               onSummarize={() => {
-                setPage("iag");
+                setWorkspacePage("iag");
                 setActiveGap("summary");
                 announce("5C selections summarized into the IAG executive view.");
               }}
@@ -403,13 +684,18 @@ type AnalysisDockProps = {
   setPage: (page: PageKey) => void;
   editMode: boolean;
   setEditMode: (value: boolean) => void;
+  projects: ProjectSummary[];
+  activeProjectId: string;
+  activeProject?: ProjectSummary;
+  onSelectProject: (projectId: string) => void;
+  projectLoading: boolean;
   context: string;
   setContext: (value: string) => void;
   onExport: () => void;
   onReanalyze: () => void;
   isAnalyzing: boolean;
   analysisState: AnalysisState;
-  uploadedEvidence: UploadedEvidence[];
+  projectDocuments: ProjectDocument[];
   onUploadEvidence: (files: FileList | null) => void;
   onRemoveEvidence: (id: string) => void;
   onSummarize: () => void;
@@ -500,13 +786,18 @@ function MobileControlPanel({
   page,
   editMode,
   setEditMode,
+  projects,
+  activeProjectId,
+  activeProject,
+  onSelectProject,
+  projectLoading,
   context,
   setContext,
   onExport,
   onReanalyze,
   isAnalyzing,
   analysisState,
-  uploadedEvidence,
+  projectDocuments,
   onUploadEvidence,
   onRemoveEvidence,
   onSummarize,
@@ -525,7 +816,17 @@ function MobileControlPanel({
       </div>
 
       <div className="mt-3">
-        <EvidenceStateStrip context={context} uploadedEvidence={uploadedEvidence} analysisState={analysisState} />
+        <ProjectSelector
+          projects={projects}
+          activeProjectId={activeProjectId}
+          activeProject={activeProject}
+          onSelectProject={onSelectProject}
+          disabled={projectLoading}
+        />
+      </div>
+
+      <div className="mt-3">
+        <EvidenceStateStrip context={context} projectDocuments={projectDocuments} analysisState={analysisState} />
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
@@ -578,7 +879,7 @@ function MobileControlPanel({
             />
             <EvidenceUploadControl
               inputId="mobile-evidence-upload"
-              uploadedEvidence={uploadedEvidence}
+              projectDocuments={projectDocuments}
               onUploadEvidence={onUploadEvidence}
               onRemoveEvidence={onRemoveEvidence}
             />
@@ -594,13 +895,18 @@ function AnalysisDock({
   setPage,
   editMode,
   setEditMode,
+  projects,
+  activeProjectId,
+  activeProject,
+  onSelectProject,
+  projectLoading,
   context,
   setContext,
   onExport,
   onReanalyze,
   isAnalyzing,
   analysisState,
-  uploadedEvidence,
+  projectDocuments,
   onUploadEvidence,
   onRemoveEvidence,
   onSummarize,
@@ -620,7 +926,17 @@ function AnalysisDock({
         <Separator className="my-4" />
 
         <div className="space-y-4">
-          <EvidenceStateStrip context={context} uploadedEvidence={uploadedEvidence} analysisState={analysisState} />
+          <div className="rounded-md border border-border/70 bg-muted/40 p-3">
+            <ProjectSelector
+              projects={projects}
+              activeProjectId={activeProjectId}
+              activeProject={activeProject}
+              onSelectProject={onSelectProject}
+              disabled={projectLoading}
+            />
+          </div>
+
+          <EvidenceStateStrip context={context} projectDocuments={projectDocuments} analysisState={analysisState} />
 
           <div className="rounded-md border border-border/70 bg-muted/40 p-3">
             <Field label="Quick jump">
@@ -685,7 +1001,7 @@ function AnalysisDock({
               />
               <EvidenceUploadControl
                 inputId="evidence-upload"
-                uploadedEvidence={uploadedEvidence}
+                projectDocuments={projectDocuments}
                 onUploadEvidence={onUploadEvidence}
                 onRemoveEvidence={onRemoveEvidence}
               />
@@ -700,7 +1016,7 @@ function AnalysisDock({
               )}
               {analysisState.status === "ready" && (
                 <p className="rounded-md border border-primary/25 bg-primary/10 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                  Live backend analysis applied.
+                  {analysisState.message || "Workspace ready."}
                 </p>
               )}
             </div>
@@ -713,14 +1029,14 @@ function AnalysisDock({
 
 function EvidenceStateStrip({
   context,
-  uploadedEvidence,
+  projectDocuments,
   analysisState,
 }: {
   context: string;
-  uploadedEvidence: UploadedEvidence[];
+  projectDocuments: ProjectDocument[];
   analysisState: AnalysisState;
 }) {
-  const fileLabel = `${uploadedEvidence.length} ${uploadedEvidence.length === 1 ? "file" : "files"}`;
+  const fileLabel = `${projectDocuments.length} ${projectDocuments.length === 1 ? "file" : "files"}`;
   const contextLabel = context.trim() ? "Added" : "Empty";
   const backendLabel =
     analysisState.status === "loading"
@@ -740,14 +1056,51 @@ function EvidenceStateStrip({
   );
 }
 
+function ProjectSelector({
+  projects,
+  activeProjectId,
+  activeProject,
+  onSelectProject,
+  disabled,
+}: {
+  projects: ProjectSummary[];
+  activeProjectId: string;
+  activeProject?: ProjectSummary;
+  onSelectProject: (projectId: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Field label="Project">
+      <Select value={activeProjectId} onValueChange={onSelectProject} disabled={disabled || !projects.length}>
+        <SelectTrigger aria-label="Selected project">
+          <SelectValue placeholder="Loading project..." />
+        </SelectTrigger>
+        <SelectContent>
+          {projects.map((project) => (
+            <SelectItem key={project.id} value={project.id}>
+              {project.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {activeProject && (
+        <p className="text-xs leading-5 text-muted-foreground">
+          {activeProject.company_name}
+          {activeProject.last_analyzed_at ? ` | Analyzed ${formatShortDate(activeProject.last_analyzed_at)}` : ""}
+        </p>
+      )}
+    </Field>
+  );
+}
+
 function EvidenceUploadControl({
   inputId,
-  uploadedEvidence,
+  projectDocuments,
   onUploadEvidence,
   onRemoveEvidence,
 }: {
   inputId: string;
-  uploadedEvidence: UploadedEvidence[];
+  projectDocuments: ProjectDocument[];
   onUploadEvidence: (files: FileList | null) => void;
   onRemoveEvidence: (id: string) => void;
 }) {
@@ -770,11 +1123,13 @@ function EvidenceUploadControl({
           Upload evidence
         </label>
       </Button>
-      {uploadedEvidence.length > 0 && (
+      {projectDocuments.length > 0 && (
         <div className="space-y-1">
-          {uploadedEvidence.map((item) => (
+          {projectDocuments.map((item) => (
             <div key={item.id} className="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1 text-xs">
-              <span className="truncate">{item.source}</span>
+              <span className="truncate">
+                {item.source} <span className="text-muted-foreground">({item.kind || "txt"})</span>
+              </span>
               <Button
                 aria-label={`Remove ${item.source}`}
                 variant="ghost"
@@ -1057,8 +1412,19 @@ function FiveCView({
   setProfile,
   jobToBeDone,
   setJobToBeDone,
+  strategicShifts,
+  competitors,
+  culturalDrivers,
+  consumerStages,
+  needStates,
+  updateCompetitor,
+  updateCultureDriver,
+  updateConsumerStage,
+  updateNeedState,
+  updateStrategicShifts,
   onGenerateJob,
   onReanalyze,
+  onSave,
 }: {
   editMode: boolean;
   activeFiveC: FiveCTab;
@@ -1067,8 +1433,19 @@ function FiveCView({
   setProfile: (profile: typeof companyProfile) => void;
   jobToBeDone: string;
   setJobToBeDone: (value: string) => void;
+  strategicShifts: FrontendStrategicShifts;
+  competitors: FrontendCompetitor[];
+  culturalDrivers: FrontendCultureDriver[];
+  consumerStages: FrontendConsumerStage[];
+  needStates: FrontendNeedState[];
+  updateCompetitor: (name: string, patch: Partial<FrontendCompetitor>) => void;
+  updateCultureDriver: (title: string, patch: Partial<FrontendCultureDriver>) => void;
+  updateConsumerStage: (stage: string, patch: Partial<FrontendConsumerStage>) => void;
+  updateNeedState: (name: string, patch: Partial<FrontendNeedState>) => void;
+  updateStrategicShifts: (nextShifts: FrontendStrategicShifts) => void;
   onGenerateJob: () => void;
   onReanalyze: (label: string) => void;
+  onSave: () => void;
 }) {
   return (
     <Tabs value={activeFiveC} onValueChange={(value) => setActiveFiveC(value as FiveCTab)}>
@@ -1088,23 +1465,50 @@ function FiveCView({
           setProfile={setProfile}
           jobToBeDone={jobToBeDone}
           setJobToBeDone={setJobToBeDone}
+          strategicShifts={strategicShifts}
+          updateStrategicShifts={updateStrategicShifts}
           onGenerateJob={onGenerateJob}
+          onSave={onSave}
         />
       </TabsContent>
       <TabsContent value="company">
-        <CompanyPanel editMode={editMode} profile={profile} setProfile={setProfile} />
+        <CompanyPanel editMode={editMode} profile={profile} setProfile={setProfile} onSave={onSave} />
       </TabsContent>
       <TabsContent value="competition">
-        <CompetitionPanel editMode={editMode} onReanalyze={() => onReanalyze("the competitive opportunity")} />
+        <CompetitionPanel
+          competitors={competitors}
+          updateCompetitor={updateCompetitor}
+          editMode={editMode}
+          onReanalyze={() => onReanalyze("the competitive opportunity")}
+          onSave={onSave}
+        />
       </TabsContent>
       <TabsContent value="culture">
-        <CulturePanel editMode={editMode} onReanalyze={() => onReanalyze("the cultural opportunity")} />
+        <CulturePanel
+          culturalDrivers={culturalDrivers}
+          updateCultureDriver={updateCultureDriver}
+          editMode={editMode}
+          onReanalyze={() => onReanalyze("the cultural opportunity")}
+          onSave={onSave}
+        />
       </TabsContent>
       <TabsContent value="consumer">
-        <ConsumerPanel editMode={editMode} onReanalyze={() => onReanalyze("the consumer opportunity")} />
+        <ConsumerPanel
+          consumerStages={consumerStages}
+          updateConsumerStage={updateConsumerStage}
+          editMode={editMode}
+          onReanalyze={() => onReanalyze("the consumer opportunity")}
+          onSave={onSave}
+        />
       </TabsContent>
       <TabsContent value="category">
-        <CategoryPanel editMode={editMode} onReanalyze={() => onReanalyze("the category opportunity")} />
+        <CategoryPanel
+          needStates={needStates}
+          updateNeedState={updateNeedState}
+          editMode={editMode}
+          onReanalyze={() => onReanalyze("the category opportunity")}
+          onSave={onSave}
+        />
       </TabsContent>
     </Tabs>
   );
@@ -1116,21 +1520,27 @@ function FiveCSummary({
   setProfile,
   jobToBeDone,
   setJobToBeDone,
+  strategicShifts,
+  updateStrategicShifts,
   onGenerateJob,
+  onSave,
 }: {
   editMode: boolean;
   profile: typeof companyProfile;
   setProfile: (profile: typeof companyProfile) => void;
   jobToBeDone: string;
   setJobToBeDone: (value: string) => void;
+  strategicShifts: FrontendStrategicShifts;
+  updateStrategicShifts: (nextShifts: FrontendStrategicShifts) => void;
   onGenerateJob: () => void;
+  onSave: () => void;
 }) {
   if (editMode) {
     return (
       <div className="space-y-5 rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
-        <CompanyEditor profile={profile} setProfile={setProfile} />
+        <CompanyEditor profile={profile} setProfile={setProfile} onSave={onSave} />
         <Separator />
-        <ShiftEditor />
+        <ShiftEditor strategicShifts={strategicShifts} updateStrategicShifts={updateStrategicShifts} />
         <Separator />
         <Field label="Job to be Done">
           <Textarea
@@ -1140,10 +1550,16 @@ function FiveCSummary({
             className="min-h-[120px]"
           />
         </Field>
-        <Button onClick={onGenerateJob}>
-          <Sparkles />
-          Generate Job to be Done
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onGenerateJob}>
+            <Sparkles />
+            Generate Job to be Done
+          </Button>
+          <Button variant="outline" onClick={onSave}>
+            <Save />
+            Save
+          </Button>
+        </div>
       </div>
     );
   }
@@ -1203,14 +1619,16 @@ function CompanyPanel({
   editMode,
   profile,
   setProfile,
+  onSave,
 }: {
   editMode: boolean;
   profile: typeof companyProfile;
   setProfile: (profile: typeof companyProfile) => void;
+  onSave: () => void;
 }) {
   return editMode ? (
     <div className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
-      <CompanyEditor profile={profile} setProfile={setProfile} />
+      <CompanyEditor profile={profile} setProfile={setProfile} onSave={onSave} />
     </div>
   ) : (
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
@@ -1235,9 +1653,11 @@ function CompanyPanel({
 function CompanyEditor({
   profile,
   setProfile,
+  onSave,
 }: {
   profile: typeof companyProfile;
   setProfile: (profile: typeof companyProfile) => void;
+  onSave: () => void;
 }) {
   return (
     <div className="grid gap-4">
@@ -1266,7 +1686,7 @@ function CompanyEditor({
           />
         </Field>
       ))}
-      <Button className="w-fit">
+      <Button className="w-fit" onClick={onSave}>
         <Save />
         Save
       </Button>
@@ -1274,40 +1694,107 @@ function CompanyEditor({
   );
 }
 
-function ShiftEditor() {
+function ShiftEditor({
+  strategicShifts,
+  updateStrategicShifts,
+}: {
+  strategicShifts: FrontendStrategicShifts;
+  updateStrategicShifts: (nextShifts: FrontendStrategicShifts) => void;
+}) {
+  const updateShift = (
+    section: keyof Omit<FrontendStrategicShifts, "job">,
+    patch: Partial<FrontendStrategicShifts[keyof Omit<FrontendStrategicShifts, "job">]>,
+  ) => {
+    updateStrategicShifts({
+      ...strategicShifts,
+      [section]: {
+        ...strategicShifts[section],
+        ...patch,
+      },
+    });
+  };
+
   return (
     <div className="grid gap-4 xl:grid-cols-2">
       <Field label="Opportunity Rationale">
-        <Textarea defaultValue={strategicShifts.competition.from} />
+        <Textarea
+          value={strategicShifts.competition.from}
+          onChange={(event) => updateShift("competition", { from: event.target.value })}
+        />
       </Field>
       <Field label="Unmet Needs">
-        <Textarea defaultValue={strategicShifts.competition.to.join("\n")} />
+        <Textarea
+          value={strategicShifts.competition.to.join("\n")}
+          onChange={(event) => updateShift("competition", { to: event.target.value.split("\n").filter(Boolean) })}
+        />
       </Field>
       <Field label="Cultural Tension">
-        <Textarea defaultValue={strategicShifts.culture.from} />
+        <Textarea
+          value={strategicShifts.culture.from}
+          onChange={(event) => updateShift("culture", { from: event.target.value })}
+        />
       </Field>
       <Field label="Emerging Paradigm">
-        <Textarea defaultValue={strategicShifts.culture.to} />
+        <Textarea
+          value={strategicShifts.culture.to}
+          onChange={(event) => updateShift("culture", { to: event.target.value })}
+        />
       </Field>
       <Field label="Core Problem">
-        <Textarea defaultValue={strategicShifts.consumer.from} />
+        <Textarea
+          value={strategicShifts.consumer.from}
+          onChange={(event) => updateShift("consumer", { from: event.target.value })}
+        />
       </Field>
       <Field label="Cultural Reason">
-        <Textarea defaultValue={strategicShifts.consumer.to} />
+        <Textarea
+          value={strategicShifts.consumer.to}
+          onChange={(event) => updateShift("consumer", { to: event.target.value })}
+        />
       </Field>
       <Field label="Primary Gap">
-        <Textarea defaultValue={strategicShifts.category.from} />
+        <Textarea
+          value={strategicShifts.category.from}
+          onChange={(event) => updateShift("category", { from: event.target.value })}
+        />
       </Field>
       <Field label="Recommended Fix">
-        <Textarea defaultValue={strategicShifts.category.to} />
+        <Textarea
+          value={strategicShifts.category.to}
+          onChange={(event) => updateShift("category", { to: event.target.value })}
+        />
       </Field>
     </div>
   );
 }
 
-function CompetitionPanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyze: () => void }) {
-  const [selectedCompetitor, setSelectedCompetitor] = useState(competitors[0].name);
+function CompetitionPanel({
+  competitors,
+  updateCompetitor,
+  editMode,
+  onReanalyze,
+  onSave,
+}: {
+  competitors: FrontendCompetitor[];
+  updateCompetitor: (name: string, patch: Partial<FrontendCompetitor>) => void;
+  editMode: boolean;
+  onReanalyze: () => void;
+  onSave: () => void;
+}) {
+  const [selectedCompetitor, setSelectedCompetitor] = useState(competitors[0]?.name || "");
   const competitor = competitors.find((item) => item.name === selectedCompetitor) || competitors[0];
+
+  useEffect(() => {
+    if (!competitors.length) return;
+    if (!competitors.some((item) => item.name === selectedCompetitor)) {
+      setSelectedCompetitor(competitors[0].name);
+    }
+  }, [competitors, selectedCompetitor]);
+
+  if (!competitor) {
+    return <SummaryBlock title="Competitive Evidence Required">Add competitor evidence and rerun analysis.</SummaryBlock>;
+  }
+
   return (
     <div className="space-y-5">
       <Tabs value={selectedCompetitor} onValueChange={setSelectedCompetitor}>
@@ -1322,10 +1809,21 @@ function CompetitionPanel({ editMode, onReanalyze }: { editMode: boolean; onRean
         {competitors.map((item) => (
           <TabsContent key={item.name} value={item.name}>
             {editMode ? (
-              <SelectionEditor itemLabel={item.name} selected={item.selected}>
-                <Field label="Competitor Position"><Textarea defaultValue={item.position} /></Field>
-                <Field label="Competitor Purpose"><Textarea defaultValue={item.purpose} /></Field>
-                <Field label="Purpose into Profit"><Textarea defaultValue={item.profit} /></Field>
+              <SelectionEditor
+                itemLabel={item.name}
+                selected={item.selected}
+                onSelectedChange={(selected) => updateCompetitor(item.name, { selected })}
+                onSave={onSave}
+              >
+                <Field label="Competitor Position">
+                  <Textarea value={item.position} onChange={(event) => updateCompetitor(item.name, { position: event.target.value })} />
+                </Field>
+                <Field label="Competitor Purpose">
+                  <Textarea value={item.purpose} onChange={(event) => updateCompetitor(item.name, { purpose: event.target.value })} />
+                </Field>
+                <Field label="Purpose into Profit">
+                  <Textarea value={item.profit} onChange={(event) => updateCompetitor(item.name, { profit: event.target.value })} />
+                </Field>
               </SelectionEditor>
             ) : (
               <CompetitorCard competitor={item} />
@@ -1343,7 +1841,7 @@ function CompetitionPanel({ editMode, onReanalyze }: { editMode: boolean; onRean
   );
 }
 
-function CompetitorCard({ competitor }: { competitor: (typeof competitors)[number] }) {
+function CompetitorCard({ competitor }: { competitor: FrontendCompetitor }) {
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <SummaryBlock title="Competitor Position">{competitor.position}</SummaryBlock>
@@ -1353,9 +1851,33 @@ function CompetitorCard({ competitor }: { competitor: (typeof competitors)[numbe
   );
 }
 
-function CulturePanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyze: () => void }) {
-  const [driver, setDriver] = useState(culturalDrivers[0].title);
+function CulturePanel({
+  culturalDrivers,
+  updateCultureDriver,
+  editMode,
+  onReanalyze,
+  onSave,
+}: {
+  culturalDrivers: FrontendCultureDriver[];
+  updateCultureDriver: (title: string, patch: Partial<FrontendCultureDriver>) => void;
+  editMode: boolean;
+  onReanalyze: () => void;
+  onSave: () => void;
+}) {
+  const [driver, setDriver] = useState(culturalDrivers[0]?.title || "");
   const active = culturalDrivers.find((item) => item.title === driver) || culturalDrivers[0];
+
+  useEffect(() => {
+    if (!culturalDrivers.length) return;
+    if (!culturalDrivers.some((item) => item.title === driver)) {
+      setDriver(culturalDrivers[0].title);
+    }
+  }, [culturalDrivers, driver]);
+
+  if (!active) {
+    return <SummaryBlock title="Culture Evidence Required">Add culture evidence and rerun analysis.</SummaryBlock>;
+  }
+
   return (
     <div className="space-y-5">
       <h3 className="text-xl font-semibold">Cultural Drivers</h3>
@@ -1371,11 +1893,24 @@ function CulturePanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyz
         {culturalDrivers.map((item) => (
           <TabsContent key={item.title} value={item.title}>
             {editMode ? (
-              <SelectionEditor itemLabel={item.title} selected={item.selected}>
-                <Field label="Cultural Observation"><Textarea defaultValue={item.observation} /></Field>
-                <Field label="Underlying Tension"><Textarea defaultValue={item.tension} /></Field>
-                <Field label="What This Means for People"><Textarea defaultValue={item.people} /></Field>
-                <Field label="Marketing Implication"><Textarea defaultValue={item.implication} /></Field>
+              <SelectionEditor
+                itemLabel={item.title}
+                selected={item.selected}
+                onSelectedChange={(selected) => updateCultureDriver(item.title, { selected })}
+                onSave={onSave}
+              >
+                <Field label="Cultural Observation">
+                  <Textarea value={item.observation} onChange={(event) => updateCultureDriver(item.title, { observation: event.target.value })} />
+                </Field>
+                <Field label="Underlying Tension">
+                  <Textarea value={item.tension} onChange={(event) => updateCultureDriver(item.title, { tension: event.target.value })} />
+                </Field>
+                <Field label="What This Means for People">
+                  <Textarea value={item.people} onChange={(event) => updateCultureDriver(item.title, { people: event.target.value })} />
+                </Field>
+                <Field label="Marketing Implication">
+                  <Textarea value={item.implication} onChange={(event) => updateCultureDriver(item.title, { implication: event.target.value })} />
+                </Field>
               </SelectionEditor>
             ) : (
               <div className="grid gap-4 xl:grid-cols-2">
@@ -1420,8 +1955,32 @@ function CulturePanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyz
   );
 }
 
-function ConsumerPanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyze: () => void }) {
-  const [stage, setStage] = useState("Discovery");
+function ConsumerPanel({
+  consumerStages,
+  updateConsumerStage,
+  editMode,
+  onReanalyze,
+  onSave,
+}: {
+  consumerStages: FrontendConsumerStage[];
+  updateConsumerStage: (stage: string, patch: Partial<FrontendConsumerStage>) => void;
+  editMode: boolean;
+  onReanalyze: () => void;
+  onSave: () => void;
+}) {
+  const [stage, setStage] = useState(consumerStages[0]?.stage || "Evaluation");
+
+  useEffect(() => {
+    if (!consumerStages.length) return;
+    if (!consumerStages.some((item) => item.stage === stage)) {
+      setStage(consumerStages[0].stage);
+    }
+  }, [consumerStages, stage]);
+
+  if (!consumerStages.length) {
+    return <SummaryBlock title="Consumer Evidence Required">Add consumer evidence and rerun analysis.</SummaryBlock>;
+  }
+
   return (
     <div className="space-y-5">
       <Accordion type="single" collapsible className="rounded-md border border-border bg-panel/95 px-4 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
@@ -1429,11 +1988,11 @@ function ConsumerPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
           <AccordionTrigger>Personas</AccordionTrigger>
           <AccordionContent>
             <div className="grid gap-4 md:grid-cols-3">
-              {["Pragmatic Parent", "Label Scrutinizer", "Nostalgic Buyer"].map((persona) => (
-                <article key={persona} className="rounded-md border border-border bg-card/85 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-                  <h4 className="font-semibold">{persona}</h4>
+              {consumerStages.slice(0, 3).map((item) => (
+                <article key={item.stage} className="rounded-md border border-border bg-card/85 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                  <h4 className="font-semibold">{item.stage} audience</h4>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Motivated by child wellbeing, practical routines, and confidence that the product delivers what it promises.
+                    {item.barrier || item.definition}
                   </p>
                 </article>
               ))}
@@ -1454,10 +2013,24 @@ function ConsumerPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
         {consumerStages.map((item) => (
           <TabsContent key={item.stage} value={item.stage}>
             {editMode ? (
-              <SelectionEditor itemLabel={item.stage} selected={item.selected}>
-                <Field label="Stage definition"><Textarea defaultValue={item.definition} /></Field>
-                <Field label="Barrier analysis"><Textarea defaultValue={item.barrier} /></Field>
-                <Field label="Reviews"><Textarea defaultValue={item.reviews.join("\n")} /></Field>
+              <SelectionEditor
+                itemLabel={item.stage}
+                selected={item.selected}
+                onSelectedChange={(selected) => updateConsumerStage(item.stage, { selected })}
+                onSave={onSave}
+              >
+                <Field label="Stage definition">
+                  <Textarea value={item.definition} onChange={(event) => updateConsumerStage(item.stage, { definition: event.target.value })} />
+                </Field>
+                <Field label="Barrier analysis">
+                  <Textarea value={item.barrier} onChange={(event) => updateConsumerStage(item.stage, { barrier: event.target.value })} />
+                </Field>
+                <Field label="Reviews">
+                  <Textarea
+                    value={item.reviews.join("\n")}
+                    onChange={(event) => updateConsumerStage(item.stage, { reviews: event.target.value.split("\n").filter(Boolean) })}
+                  />
+                </Field>
               </SelectionEditor>
             ) : (
               <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
@@ -1491,13 +2064,36 @@ function ConsumerPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
   );
 }
 
-function CategoryPanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyze: () => void }) {
-  const [need, setNeed] = useState(needStates[0].name);
+function CategoryPanel({
+  needStates,
+  updateNeedState,
+  editMode,
+  onReanalyze,
+  onSave,
+}: {
+  needStates: FrontendNeedState[];
+  updateNeedState: (name: string, patch: Partial<FrontendNeedState>) => void;
+  editMode: boolean;
+  onReanalyze: () => void;
+  onSave: () => void;
+}) {
+  const [need, setNeed] = useState(needStates[0]?.name || "");
   const activeNeed = needStates.find((item) => item.name === need) || needStates[0];
   const chartData = needStates.map((item) => ({
     subject: item.name.replace(" & ", " / "),
     score: item.score,
   }));
+
+  useEffect(() => {
+    if (!needStates.length) return;
+    if (!needStates.some((item) => item.name === need)) {
+      setNeed(needStates[0].name);
+    }
+  }, [needStates, need]);
+
+  if (!activeNeed) {
+    return <SummaryBlock title="Category Evidence Required">Add category evidence and rerun analysis.</SummaryBlock>;
+  }
 
   return (
     <div className="space-y-5">
@@ -1514,9 +2110,24 @@ function CategoryPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
         {needStates.map((item) => (
           <TabsContent key={item.name} value={item.name}>
             {editMode ? (
-              <SelectionEditor itemLabel={item.name} selected={item.selected}>
-                <Field label="Needstate description"><Textarea defaultValue={item.description} /></Field>
-                <Field label="Priority score"><Input type="number" min={0} max={100} defaultValue={item.score} /></Field>
+              <SelectionEditor
+                itemLabel={item.name}
+                selected={item.selected}
+                onSelectedChange={(selected) => updateNeedState(item.name, { selected })}
+                onSave={onSave}
+              >
+                <Field label="Needstate description">
+                  <Textarea value={item.description} onChange={(event) => updateNeedState(item.name, { description: event.target.value })} />
+                </Field>
+                <Field label="Priority score">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={item.score}
+                    onChange={(event) => updateNeedState(item.name, { score: Number(event.target.value) })}
+                  />
+                </Field>
               </SelectionEditor>
             ) : (
               <SummaryBlock title={item.name}>{item.description}</SummaryBlock>
@@ -1573,17 +2184,22 @@ function CategoryPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
 
 function SustainabilityView({
   editMode,
+  market,
   goals,
   updateGoal,
   removeGoal,
   onGenerateGoals,
+  onSave,
 }: {
   editMode: boolean;
+  market: string;
   goals: SustainabilityGoal[];
   updateGoal: (id: string, patch: Partial<SustainabilityGoal>) => void;
   removeGoal: (id: string) => void;
   onGenerateGoals: () => void;
+  onSave: () => void;
 }) {
+  const reportingYear = goals.reduce((year, goal) => Math.max(year, goal.endYear), 2026);
   const goalMix = useMemo(
     () =>
       ["environmental", "social", "governance"].map((category) => ({
@@ -1598,10 +2214,16 @@ function SustainabilityView({
       <div className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-2xl font-semibold">Edit Sustainability Analysis</h3>
-          <Button onClick={onGenerateGoals}>
-            <Plus />
-            Generate new goals
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={onGenerateGoals}>
+              <Plus />
+              Generate new goals
+            </Button>
+            <Button variant="outline" onClick={onSave}>
+              <Save />
+              Save
+            </Button>
+          </div>
         </div>
         <Accordion type="multiple" className="rounded-md border border-border bg-panel/95 px-4 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
           {goals.map((goal) => (
@@ -1628,8 +2250,8 @@ function SustainabilityView({
         <div>
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h3 className="font-serif text-3xl font-semibold">Sustainability: Yoplait</h3>
-              <p className="text-sm text-muted-foreground">Reporting Year: 2026</p>
+              <h3 className="font-serif text-3xl font-semibold">Sustainability: {market}</h3>
+              <p className="text-sm text-muted-foreground">Reporting Year: {reportingYear}</p>
             </div>
             <Badge variant="success">{goals.filter((goal) => goal.flagship).length} flagship commitments</Badge>
           </div>
@@ -1899,10 +2521,14 @@ function RecommendationDeck({ recommendation }: { recommendation: typeof recFrom
 function SelectionEditor({
   itemLabel,
   selected,
+  onSelectedChange,
+  onSave,
   children,
 }: {
   itemLabel: string;
   selected: boolean;
+  onSelectedChange: (selected: boolean) => void;
+  onSave: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -1910,12 +2536,12 @@ function SelectionEditor({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-xl font-semibold">{itemLabel}</h3>
         <div className="flex items-center gap-3">
-          <Switch checked={selected} />
+          <Switch checked={selected} onCheckedChange={onSelectedChange} />
           <Label>Use in summary</Label>
         </div>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">{children}</div>
-      <Button className="w-fit"><Save />Save</Button>
+      <Button className="w-fit" onClick={onSave}><Save />Save</Button>
     </div>
   );
 }
@@ -2013,6 +2639,24 @@ function titleCase(value: string) {
 function isSelectedFiveC(key: FiveCTab) {
   if (key === "summary") return false;
   return true;
+}
+
+function isPageKey(value: string): value is PageKey {
+  return pageOptions.some((option) => option.key === value);
+}
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48) || "phase-1";
+}
+
+function formatShortDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 export default App;

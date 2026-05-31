@@ -167,12 +167,10 @@ node_modules/
 *.pptx
 .streamlit/
 data/conversation/
-<<<<<<< HEAD
 Gaia.zip
 Gaia Grounded Production.zip
 *.zip
-=======
-*.zip
 data/analysis/deep/processed_files.json
 data/analysis/lite/processed_files.json
->>>>>>> 90994fc (test)
+data/phase1/*.db
+data/phase1/*.db-*

@@ -5,6 +5,8 @@ import html
 import json
 import re
 import zipfile
+import base64
+import zlib
 from pathlib import Path
 from typing import Iterable
 from xml.etree import ElementTree
@@ -134,8 +136,8 @@ class ReportIngestionPipeline:
     def _read_pdf(self, path: Path) -> str:
         try:
             from pypdf import PdfReader
-        except ImportError as exc:
-            raise RuntimeError("PDF ingestion requires the pypdf package.") from exc
+        except ImportError:
+            return _read_pdf_without_dependencies(path)
 
         reader = PdfReader(str(path))
         return "\n".join(page.extract_text() or "" for page in reader.pages)
@@ -162,3 +164,59 @@ def _json_strings(value: object) -> list[str]:
                 output.extend(child)
         return output
     return [str(value)]
+
+
+def _read_pdf_without_dependencies(path: Path) -> str:
+    raw = path.read_bytes()
+    chunks: list[str] = []
+    for match in re.finditer(rb"stream\r?\n(.*?)endstream", raw, re.S):
+        stream = match.group(1).strip()
+        decoded = _decode_pdf_stream(stream)
+        if not decoded:
+            continue
+        chunks.extend(_pdf_literal_strings(decoded))
+    return "\n".join(chunks)
+
+
+def _decode_pdf_stream(stream: bytes) -> bytes:
+    candidates = [stream]
+    if stream.endswith(b"~>"):
+        try:
+            candidates.append(base64.a85decode(stream, adobe=True))
+        except Exception:
+            pass
+    for candidate in candidates:
+        try:
+            return zlib.decompress(candidate)
+        except Exception:
+            continue
+    return b""
+
+
+def _pdf_literal_strings(data: bytes) -> list[str]:
+    strings: list[str] = []
+    for match in re.findall(rb"\((?:\\.|[^\\)])*\)", data):
+        value = _decode_pdf_literal(match[1:-1])
+        if value and value != "\x7f":
+            strings.append(value)
+    return strings
+
+
+def _decode_pdf_literal(value: bytes) -> str:
+    def replace_octal(match: re.Match[bytes]) -> bytes:
+        return bytes([int(match.group(1), 8)])
+
+    value = re.sub(rb"\\([0-7]{1,3})", replace_octal, value)
+    replacements = (
+        (rb"\n", b"\n"),
+        (rb"\r", b"\r"),
+        (rb"\t", b"\t"),
+        (rb"\b", b"\b"),
+        (rb"\f", b"\f"),
+        (rb"\(", b"("),
+        (rb"\)", b")"),
+        (rb"\\", b"\\"),
+    )
+    for source, target in replacements:
+        value = value.replace(source, target)
+    return value.decode("latin-1", errors="ignore").strip()

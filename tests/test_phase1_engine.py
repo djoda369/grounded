@@ -3,14 +3,39 @@ import base64
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core.phase1 import Phase1Analyzer
 from core.phase1.assistant import GroundedAssistant
 from core.phase1.ingestion import ReportIngestionPipeline, normalize_text
 from backend.api import analyze_payload
 
+STRUCTURED_KEYS = {
+    "contract_version",
+    "company_name",
+    "documents",
+    "company_bbp",
+    "competitors",
+    "culture",
+    "consumer",
+    "category",
+    "sustainability",
+    "iag",
+    "recommendation",
+    "five_c",
+    "sustainability_goals",
+    "assistant_system_prompt",
+}
+
 
 class Phase1EngineTest(unittest.TestCase):
+    def setUp(self):
+        self.env_patch = patch.dict("os.environ", {"GAIA_LLM_EXTRACTION": "disabled"})
+        self.env_patch.start()
+
+    def tearDown(self):
+        self.env_patch.stop()
+
     def test_ingestion_normalizes_and_dedupes_documents(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "report.txt"
@@ -37,6 +62,15 @@ class Phase1EngineTest(unittest.TestCase):
 
         self.assertEqual(len(documents), 1)
         self.assertIn("Reduce carbon emissions", documents[0].text)
+
+    def test_pdf_ingestion_extracts_scope_text_without_optional_dependency(self):
+        path = Path(__file__).resolve().parents[1] / "Grounded-Development-Technical-Scope-of-Work.pdf"
+
+        documents = ReportIngestionPipeline().ingest_paths([path])
+
+        self.assertEqual(len(documents), 1)
+        self.assertEqual(documents[0].kind, "pdf")
+        self.assertIn("Phase 1 Deliverables", documents[0].text)
 
     def test_phase1_analysis_returns_stable_5c_iag_and_assistant_prompt(self):
         source = normalize_text(
@@ -84,6 +118,44 @@ class Phase1EngineTest(unittest.TestCase):
         self.assertEqual(result["company_name"], "Yoplait UK")
         self.assertIn("company", result["five_c"])
         self.assertIn("summary", result["iag"])
+
+    def test_phase1_api_payload_returns_structured_contract_with_legacy_fields(self):
+        result = analyze_payload(
+            {
+                "company_name": "Acme Foods",
+                "text": (
+                    "Acme Foods believes healthy snacks need transparent proof. "
+                    "Competitors include Danone UK and Arla Foods. "
+                    "Parents need clear nutrition labels at purchase. "
+                    "Culture is shifting toward trust and simple claims. "
+                    "The category need state is fortified snack nutrition. "
+                    "The sustainability goal is to reduce packaging waste by 30% by 2030."
+                ),
+            }
+        )
+
+        self.assertTrue(STRUCTURED_KEYS.issubset(result.keys()))
+        self.assertEqual(result["contract_version"], "phase1.structured.v1")
+        self.assertEqual(result["company_bbp"]["market"], "Acme Foods")
+        self.assertGreaterEqual(len(result["competitors"]), 1)
+        self.assertIn("goals", result["sustainability"])
+        self.assertIn("nextSteps", result["iag"]["summary"])
+        self.assertIn("five_c", result)
+        self.assertIn("sustainability_goals", result)
+        self.assertIn("assistant_system_prompt", result)
+
+    def test_empty_evidence_returns_low_confidence_structured_objects(self):
+        result = analyze_payload({"company_name": "Acme Foods", "text": ""})
+
+        self.assertTrue(STRUCTURED_KEYS.issubset(result.keys()))
+        self.assertLessEqual(result["company_bbp"]["confidence"], 45)
+        self.assertEqual(result["competitors"][0]["name"], "Competitive whitespace")
+        self.assertLessEqual(result["competitors"][0]["confidence"], 45)
+        self.assertIn("No named competitors", result["competitors"][0]["evidence"][0]["summary"])
+        self.assertLessEqual(result["sustainability"]["goals"][0]["confidence"], 45)
+        self.assertTrue(result["culture"]["drivers"])
+        self.assertTrue(result["consumer"]["stages"])
+        self.assertTrue(result["category"]["need_states"])
 
     def test_phase1_api_payload_accepts_base64_upload(self):
         encoded = base64.b64encode(
