@@ -2,33 +2,33 @@
 
 :root {
   color-scheme: dark;
-  --background: 0 0% 5%;
-  --foreground: 44 30% 94%;
-  --card: 84 11% 9%;
-  --card-foreground: 44 30% 94%;
-  --popover: 84 11% 9%;
-  --popover-foreground: 44 30% 94%;
-  --primary: 79 76% 55%;
-  --primary-foreground: 80 28% 8%;
-  --secondary: 199 89% 48%;
-  --secondary-foreground: 206 60% 8%;
-  --muted: 78 9% 15%;
-  --muted-foreground: 48 11% 66%;
-  --accent: 79 76% 55%;
-  --accent-foreground: 44 30% 94%;
-  --destructive: 350 89% 62%;
-  --destructive-foreground: 44 30% 96%;
-  --border: 75 9% 22%;
-  --input: 75 8% 12%;
-  --ring: 79 76% 55%;
-  --sidebar: 252 9% 11%;
-  --panel: 80 8% 8%;
+  --background: 0 5% 4%;
+  --foreground: 0 0% 93%;
+  --card: 0 0% 8%;
+  --card-foreground: 0 0% 93%;
+  --popover: 0 0% 6%;
+  --popover-foreground: 0 0% 93%;
+  --primary: 312 100% 52%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 196 100% 47%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 0 0% 12%;
+  --muted-foreground: 220 3% 70%;
+  --accent: 39 100% 51%;
+  --accent-foreground: 0 5% 4%;
+  --destructive: 351 100% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 100% / 0.14;
+  --input: 0 0% 10%;
+  --ring: 312 100% 52%;
+  --sidebar: 0 5% 4%;
+  --panel: 0 0% 7%;
   --radius: 0.5rem;
 }
 
 @theme inline {
-  --font-sans: "Aptos", "Avenir Next", "Segoe UI", sans-serif;
-  --font-serif: "Iowan Old Style", Georgia, serif;
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-serif: Arial, Helvetica, sans-serif;
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-card: hsl(var(--card));
@@ -69,8 +69,10 @@ body {
   min-width: 320px;
   margin: 0;
   background:
-    linear-gradient(90deg, rgba(163, 230, 53, 0.045) 0 1px, transparent 1px 120px),
-    linear-gradient(180deg, rgba(56, 189, 248, 0.04) 0 1px, transparent 1px 120px),
+    linear-gradient(180deg, rgba(255, 8, 204, 0.1), transparent 280px),
+    linear-gradient(135deg, rgba(0, 174, 239, 0.08), transparent 36%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 118px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 118px),
     hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: var(--font-sans);
@@ -90,6 +92,30 @@ select {
 
 strong {
   color: hsl(var(--foreground));
+}
+
+::selection {
+  background: hsla(var(--primary), 0.36);
+  color: hsl(var(--primary-foreground));
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border: 2px solid hsl(var(--background));
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary));
 }
 
 .sr-only {

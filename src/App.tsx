@@ -20,7 +20,6 @@ import {
   FileText,
   Gauge,
   Globe2,
-  Home,
   Layers3,
   Leaf,
   LineChart,
@@ -58,7 +57,6 @@ import {
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -103,7 +101,32 @@ const fiveCTabs: Array<{ key: FiveCTab; label: string; icon: typeof Building2 }>
   { key: "category", label: "Category", icon: Target },
 ];
 
-const chartColors = ["#a3e635", "#38bdf8", "#fb7185", "#fbbf24", "#c084fc"];
+const chartColors = ["#ff08cc", "#00aeef", "#ffa603", "#1cc35b", "#b98bcc"];
+const chartTooltipContentStyle = {
+  background: "hsl(var(--card))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: "8px",
+  boxShadow: "0 18px 48px rgba(0, 0, 0, 0.44)",
+  color: "hsl(var(--foreground))",
+};
+const chartTooltipTextStyle = {
+  color: "hsl(var(--foreground))",
+  fontWeight: 600,
+};
+
+const pageIcons: Record<PageKey, typeof Layers3> = {
+  iag: Layers3,
+  fiveC: BarChart3,
+  sustainability: Leaf,
+  next: Target,
+};
+
+const pageLeads: Record<PageKey, string> = {
+  iag: "Intention-action gap evidence, confidence, and recommended moves for Yoplait UK.",
+  fiveC: "Company, competition, culture, consumer, and category signals mapped into the strategic job.",
+  sustainability: "Flagship commitments, goal mix, and nutrition impact opportunities.",
+  next: "Recommended product direction and the outcome case behind the next move.",
+};
 
 function cloneGaps() {
   return Object.fromEntries(gapInsights.map((gap) => [gap.key, structuredClone(gap)])) as Record<
@@ -257,12 +280,18 @@ function App() {
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-background text-foreground">
-        <div className="flex min-h-screen">
-          <Sidebar
+        <div className="mx-auto flex min-h-screen w-full max-w-[1680px] flex-col px-3 py-3 sm:px-5 lg:px-6">
+          <WorkspaceTopbar
             page={page}
-            setPage={(nextPage) => {
-              setPage(nextPage);
-            }}
+            setPage={setPage}
+            profile={profile}
+            averageConfidence={averageConfidence}
+            flagshipCount={flagshipCount}
+          />
+
+          <MobileControlPanel
+            page={page}
+            setPage={setPage}
             editMode={editMode}
             setEditMode={(value) => {
               setEditMode(value);
@@ -285,15 +314,10 @@ function App() {
             onGenerateGoals={addNutritionGoal}
           />
 
-          <main className="flex-1 overflow-hidden">
-            <div className="mx-auto flex min-h-screen w-full max-w-[1480px] flex-col px-5 py-5 md:px-8 lg:px-10">
-              <Header
-                page={page}
-                profile={profile}
-                averageConfidence={averageConfidence}
-                flagshipCount={flagshipCount}
-              />
-              <div id="gaia-export-area" className="flex-1 pb-10">
+          <div className="mt-5 grid flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_390px]">
+            <main className="min-w-0 overflow-hidden">
+              <WorkspaceMasthead page={page} profile={profile} />
+              <div id="gaia-export-area" className="pb-10">
                 {page === "iag" && (
                   <IagView
                     editMode={editMode}
@@ -341,15 +365,40 @@ function App() {
                   />
                 )}
               </div>
-            </div>
-          </main>
+            </main>
+
+            <AnalysisDock
+              page={page}
+              setPage={setPage}
+              editMode={editMode}
+              setEditMode={(value) => {
+                setEditMode(value);
+                announce(value ? "Edit mode enabled." : "Presentation mode enabled.");
+              }}
+              context={context}
+              setContext={setContext}
+              onExport={exportPdf}
+              onReanalyze={() => reanalyze(page === "iag" ? "the IAG conclusion" : "the current module")}
+              isAnalyzing={analysisState.status === "loading"}
+              analysisState={analysisState}
+              uploadedEvidence={uploadedEvidence}
+              onUploadEvidence={uploadEvidence}
+              onRemoveEvidence={(id) => setUploadedEvidence((current) => current.filter((item) => item.id !== id))}
+              onSummarize={() => {
+                setPage("iag");
+                setActiveGap("summary");
+                announce("5C selections summarized into the IAG executive view.");
+              }}
+              onGenerateGoals={addNutritionGoal}
+            />
+          </div>
         </div>
       </div>
     </TooltipProvider>
   );
 }
 
-type SidebarProps = {
+type AnalysisDockProps = {
   page: PageKey;
   setPage: (page: PageKey) => void;
   editMode: boolean;
@@ -367,7 +416,180 @@ type SidebarProps = {
   onGenerateGoals: () => void;
 };
 
-function Sidebar({
+function WorkspaceTopbar({
+  page,
+  setPage,
+  profile,
+  averageConfidence,
+  flagshipCount,
+}: {
+  page: PageKey;
+  setPage: (page: PageKey) => void;
+  profile: typeof companyProfile;
+  averageConfidence: number;
+  flagshipCount: number;
+}) {
+  return (
+    <header className="sticky top-3 z-30 overflow-hidden rounded-md border border-white/[0.12] bg-sidebar text-white shadow-[0_24px_90px_rgba(0,0,0,0.54)]">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 p-2 md:grid-cols-[236px_minmax(0,1fr)] lg:grid-cols-[236px_minmax(0,1fr)_300px] lg:items-stretch">
+        <div className="flex h-12 items-center gap-3 rounded-md border border-white/[0.10] bg-white/[0.08] px-3 lg:h-14">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary font-serif text-lg font-semibold text-primary-foreground lg:size-10 lg:text-xl">
+            G
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-[10px] font-semibold uppercase text-white/[0.58]">IAG diagnostic</p>
+            <h1 className="truncate font-serif text-xl font-semibold leading-tight">{profile.market}</h1>
+          </div>
+        </div>
+
+        <div className="flex h-12 min-w-[108px] flex-col justify-center rounded-md border border-white/[0.10] bg-white/[0.08] px-3 md:hidden">
+          <p className="text-[10px] font-semibold uppercase text-white/[0.58]">Status</p>
+          <p className="text-sm font-semibold leading-tight">{averageConfidence}% Ready</p>
+        </div>
+
+        <nav aria-label="Workspace sections" className="col-span-2 flex gap-2 overflow-x-auto pb-0.5 md:col-span-1 md:grid md:grid-cols-4 md:overflow-visible lg:col-span-1">
+          {pageOptions.map((option) => {
+            const Icon = pageIcons[option.key];
+            const isActive = page === option.key;
+            return (
+              <Button
+                key={option.key}
+                type="button"
+                variant={isActive ? "default" : "ghost"}
+                className={cn(
+                  "h-11 min-w-[148px] justify-center border border-white/[0.10] px-2 text-center text-sm text-white hover:bg-white/[0.10] hover:text-white md:min-w-0 lg:h-14 lg:justify-start lg:px-3",
+                  isActive && "border-primary bg-primary text-primary-foreground shadow-[0_10px_32px_rgba(255,8,204,0.32)] hover:bg-primary/90 hover:text-primary-foreground",
+                )}
+                onClick={() => setPage(option.key)}
+              >
+                <Icon />
+                <span className="truncate">{option.label}</span>
+              </Button>
+            );
+          })}
+        </nav>
+
+        <div className="col-span-2 hidden grid-cols-3 gap-2 md:grid lg:col-span-1">
+          <Metric icon={Gauge} label="Confidence" value={`${averageConfidence}%`} inverse />
+          <Metric icon={Leaf} label="Goals" value={String(flagshipCount)} inverse />
+          <Metric icon={ShieldCheck} label="QA" value="Ready" inverse />
+        </div>
+      </div>
+      <Progress value={100} aria-label="100% Loaded" className="h-1 rounded-none border-0 bg-white/[0.12]" />
+    </header>
+  );
+}
+
+function WorkspaceMasthead({ page, profile }: { page: PageKey; profile: typeof companyProfile }) {
+  const currentPage = pageOptions.find((option) => option.key === page)?.label || "";
+  return (
+    <section className="mb-4 rounded-md border border-white/[0.12] bg-card p-4 shadow-[0_22px_80px_rgba(0,0,0,0.30)] sm:p-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline">{profile.brand}</Badge>
+        <Badge variant="secondary">{profile.market}</Badge>
+      </div>
+      <h2 className="mt-3 max-w-[980px] font-serif text-3xl font-semibold leading-[0.96] text-foreground sm:text-4xl md:text-5xl">
+        {page === "iag" ? "5C Intention Action Gaps" : currentPage}
+      </h2>
+      <p className="mt-3 max-w-[860px] text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">{pageLeads[page]}</p>
+    </section>
+  );
+}
+
+function MobileControlPanel({
+  page,
+  editMode,
+  setEditMode,
+  context,
+  setContext,
+  onExport,
+  onReanalyze,
+  isAnalyzing,
+  analysisState,
+  uploadedEvidence,
+  onUploadEvidence,
+  onRemoveEvidence,
+  onSummarize,
+  onGenerateGoals,
+}: AnalysisDockProps) {
+  const canAnalyze = page === "iag" || page === "fiveC" || page === "sustainability";
+
+  return (
+    <section className="mt-3 rounded-md border border-white/[0.12] bg-card p-3 shadow-[0_20px_70px_rgba(0,0,0,0.34)] lg:hidden">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Quick actions</p>
+          <h2 className="text-lg font-semibold">Workspace controls</h2>
+        </div>
+        <Badge variant={editMode ? "warning" : "success"}>{editMode ? "Editing" : "Viewing"}</Badge>
+      </div>
+
+      <div className="mt-3">
+        <EvidenceStateStrip context={context} uploadedEvidence={uploadedEvidence} analysisState={analysisState} />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="justify-start"
+          aria-pressed={editMode}
+          onClick={() => setEditMode(!editMode)}
+        >
+          <Pencil />
+          Edit mode
+        </Button>
+        {(page === "iag" || page === "fiveC") && (
+          <Button type="button" variant="outline" className="justify-start" onClick={onExport}>
+            <Download />
+            Export PDF
+          </Button>
+        )}
+        {page === "fiveC" && (
+          <Button type="button" className="justify-start" onClick={onSummarize}>
+            <Sparkles />
+            Summarize
+          </Button>
+        )}
+        {page === "sustainability" && (
+          <Button type="button" className="justify-start" onClick={onGenerateGoals}>
+            <Plus />
+            New goals
+          </Button>
+        )}
+        {canAnalyze && (
+          <Button type="button" className="col-span-2 justify-start" onClick={onReanalyze} disabled={isAnalyzing}>
+            <RefreshCw className={cn(isAnalyzing && "animate-spin")} />
+            {isAnalyzing ? "Analyzing..." : page === "sustainability" ? "Analyze goals" : "Run backend analysis"}
+          </Button>
+        )}
+      </div>
+
+      {canAnalyze && (
+        <details className="mt-3 rounded-md border border-border bg-muted/40 p-3">
+          <summary className="cursor-pointer text-sm font-semibold">Context & evidence</summary>
+          <div className="mt-3 space-y-3">
+            <Textarea
+              value={context}
+              onChange={(event) => setContext(event.target.value)}
+              aria-label="Additional Context"
+              placeholder="Paste additional context..."
+              className="min-h-[96px]"
+            />
+            <EvidenceUploadControl
+              inputId="mobile-evidence-upload"
+              uploadedEvidence={uploadedEvidence}
+              onUploadEvidence={onUploadEvidence}
+              onRemoveEvidence={onRemoveEvidence}
+            />
+          </div>
+        </details>
+      )}
+    </section>
+  );
+}
+
+function AnalysisDock({
   page,
   setPage,
   editMode,
@@ -383,191 +605,218 @@ function Sidebar({
   onRemoveEvidence,
   onSummarize,
   onGenerateGoals,
-}: SidebarProps) {
+}: AnalysisDockProps) {
   return (
-    <aside className="hidden w-[290px] shrink-0 border-r border-border bg-sidebar px-5 py-5 md:block">
-      <nav className="space-y-6">
-        <div>
-          <h1 className="font-serif text-3xl font-semibold">Gaia</h1>
-        </div>
-
-        <div className="space-y-2">
-          <a className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted" href="#">
-            <Home className="size-4" />
-            Home
-          </a>
-          <div className="rounded-md border border-border bg-muted/60 px-3 py-2 text-sm font-semibold">
-            Yoplait UK
+    <aside className="hidden min-w-0 lg:sticky lg:top-[118px] lg:block lg:h-[calc(100vh-136px)] lg:overflow-y-auto">
+      <div className="rounded-md border border-white/[0.12] bg-card p-4 shadow-[0_24px_90px_rgba(0,0,0,0.38)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Control dock</p>
+            <h2 className="mt-1 text-2xl font-semibold">Workspace</h2>
           </div>
+          <Badge variant={editMode ? "warning" : "success"}>{editMode ? "Editing" : "Viewing"}</Badge>
         </div>
 
-        <Separator />
+        <Separator className="my-4" />
 
-        <div className="space-y-3">
-          <Label className="flex items-center gap-2 text-muted-foreground">
-            <FileText className="size-4" />
-            Page
-          </Label>
-          <Select value={page} onValueChange={(value) => setPage(value as PageKey)}>
-            <SelectTrigger aria-label="Selected page">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {pageOptions.map((option) => (
-                <SelectItem key={option.key} value={option.key}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <div className="space-y-4">
+          <EvidenceStateStrip context={context} uploadedEvidence={uploadedEvidence} analysisState={analysisState} />
 
-        <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-3">
-          <div className="flex items-center gap-2">
-            <Pencil className="size-4 text-accent" />
-            <Label htmlFor="edit-mode">Edit mode</Label>
-          </div>
-          <Switch id="edit-mode" checked={editMode} onCheckedChange={setEditMode} />
-        </div>
-
-        <div className="space-y-2">
-          {(page === "iag" || page === "fiveC") && (
-            <Button className="w-full justify-start" variant="outline" onClick={onExport}>
-              <Download />
-              Export Summary PDF
-            </Button>
-          )}
-          {page === "fiveC" && (
-            <Button className="w-full justify-start" variant="accent" onClick={onSummarize}>
-              <Sparkles />
-              Summarize to IAG
-            </Button>
-          )}
-          {page === "sustainability" && (
-            <Button className="w-full justify-start" variant="accent" onClick={onGenerateGoals}>
-              <Plus />
-              Generate new goals
-            </Button>
-          )}
-        </div>
-
-        {(page === "iag" || page === "sustainability" || page === "fiveC") && (
-          <div className="space-y-3">
-            <div>
-              <h2 className="text-sm font-semibold">
-                {page === "sustainability" ? "Reanalyze Goals" : "Reanalyze"}
-              </h2>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Add client evidence, proprietary research, or workshop notes.
-              </p>
-            </div>
-            <Textarea
-              value={context}
-              onChange={(event) => setContext(event.target.value)}
-              aria-label="Additional Context"
-              placeholder="Paste additional context..."
-              className="min-h-[120px]"
-            />
-            <div className="space-y-2 rounded-md border border-border bg-card p-3">
-              <input
-                id="evidence-upload"
-                type="file"
-                multiple
-                accept=".txt,.md,.csv,.json,.docx,.pdf"
-                className="sr-only"
-                onChange={(event) => {
-                  onUploadEvidence(event.target.files);
-                  event.target.value = "";
-                }}
-              />
-              <Button asChild className="w-full justify-start" variant="outline">
-                <label htmlFor="evidence-upload">
-                  <Upload />
-                  Upload evidence
-                </label>
-              </Button>
-              {uploadedEvidence.length > 0 && (
-                <div className="space-y-1">
-                  {uploadedEvidence.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1 text-xs">
-                      <span className="truncate">{item.source}</span>
-                      <Button
-                        aria-label={`Remove ${item.source}`}
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        onClick={() => onRemoveEvidence(item.id)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
+          <div className="rounded-md border border-border/70 bg-muted/40 p-3">
+            <Field label="Quick jump">
+              <Select value={page} onValueChange={(value) => setPage(value as PageKey)}>
+                <SelectTrigger aria-label="Selected page">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {pageOptions.map((option) => (
+                    <SelectItem key={option.key} value={option.key}>
+                      {option.label}
+                    </SelectItem>
                   ))}
-                </div>
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border border-border bg-muted/60 px-3 py-3">
+            <div className="flex items-center gap-2">
+              <Pencil className="size-4 text-primary" />
+              <Label htmlFor="edit-mode">Edit mode</Label>
+            </div>
+            <Switch id="edit-mode" checked={editMode} onCheckedChange={setEditMode} />
+          </div>
+
+          <div className="grid gap-2">
+            {(page === "iag" || page === "fiveC") && (
+              <Button className="w-full justify-start" variant="outline" onClick={onExport}>
+                <Download />
+                Export Summary PDF
+              </Button>
+            )}
+            {page === "fiveC" && (
+              <Button className="w-full justify-start" onClick={onSummarize}>
+                <Sparkles />
+                Summarize to IAG
+              </Button>
+            )}
+            {page === "sustainability" && (
+              <Button className="w-full justify-start" onClick={onGenerateGoals}>
+                <Plus />
+                Generate new goals
+              </Button>
+            )}
+          </div>
+
+          {(page === "iag" || page === "sustainability" || page === "fiveC") && (
+            <div className="space-y-3 rounded-md border border-border bg-muted/[0.45] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold">
+                  {page === "sustainability" ? "Reanalyze Goals" : "Reanalyze"}
+                </h3>
+                <RefreshCw className={cn("size-4 text-muted-foreground", isAnalyzing && "animate-spin text-primary")} />
+              </div>
+              <Textarea
+                value={context}
+                onChange={(event) => setContext(event.target.value)}
+                aria-label="Additional Context"
+                placeholder="Paste additional context..."
+                className="min-h-[132px]"
+              />
+              <EvidenceUploadControl
+                inputId="evidence-upload"
+                uploadedEvidence={uploadedEvidence}
+                onUploadEvidence={onUploadEvidence}
+                onRemoveEvidence={onRemoveEvidence}
+              />
+              <Button className="w-full justify-start" onClick={onReanalyze} disabled={isAnalyzing}>
+                <RefreshCw className={cn(isAnalyzing && "animate-spin")} />
+                {isAnalyzing ? "Analyzing..." : page === "sustainability" ? "Analyze goals" : "Run backend analysis"}
+              </Button>
+              {analysisState.status === "error" && (
+                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive">
+                  {analysisState.message}
+                </p>
+              )}
+              {analysisState.status === "ready" && (
+                <p className="rounded-md border border-primary/25 bg-primary/10 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  Live backend analysis applied.
+                </p>
               )}
             </div>
-            <Button className="w-full justify-start" variant="secondary" onClick={onReanalyze} disabled={isAnalyzing}>
-              <RefreshCw className={cn(isAnalyzing && "animate-spin")} />
-              {isAnalyzing ? "Analyzing..." : page === "sustainability" ? "Analyze goals" : "Run backend analysis"}
-            </Button>
-            {analysisState.status === "error" && (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive">
-                {analysisState.message}
-              </p>
-            )}
-            {analysisState.status === "ready" && (
-              <p className="text-xs leading-5 text-muted-foreground">Live backend analysis applied.</p>
-            )}
-          </div>
-        )}
-
-      </nav>
+          )}
+        </div>
+      </div>
     </aside>
   );
 }
 
-function Header({
-  page,
-  profile,
-  averageConfidence,
-  flagshipCount,
+function EvidenceStateStrip({
+  context,
+  uploadedEvidence,
+  analysisState,
 }: {
-  page: PageKey;
-  profile: typeof companyProfile;
-  averageConfidence: number;
-  flagshipCount: number;
+  context: string;
+  uploadedEvidence: UploadedEvidence[];
+  analysisState: AnalysisState;
 }) {
-  const currentPage = pageOptions.find((option) => option.key === page)?.label;
+  const fileLabel = `${uploadedEvidence.length} ${uploadedEvidence.length === 1 ? "file" : "files"}`;
+  const contextLabel = context.trim() ? "Added" : "Empty";
+  const backendLabel =
+    analysisState.status === "loading"
+      ? "Running"
+      : analysisState.status === "ready"
+        ? "Applied"
+        : analysisState.status === "error"
+          ? "Error"
+          : "Ready";
+
   return (
-    <header className="mb-5 space-y-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <Badge variant="outline">{profile.market}</Badge>
-            <span>{currentPage}</span>
-          </div>
-          <h2 className="mt-3 font-serif text-4xl font-semibold md:text-5xl">
-            {page === "iag" ? "5C Intention Action Gaps" : currentPage}
-          </h2>
-        </div>
-        <div className="grid grid-cols-3 gap-2 lg:w-[520px]">
-          <Metric icon={Gauge} label="Confidence" value={`${averageConfidence}%`} />
-          <Metric icon={Leaf} label="Goals" value={String(flagshipCount)} />
-          <Metric icon={ShieldCheck} label="QA" value="Ready" />
-        </div>
-      </div>
-      <Progress value={100} aria-label="100% Loaded" />
-    </header>
+    <div className="grid grid-cols-3 gap-2">
+      <InfoMini label="Evidence" value={fileLabel} />
+      <InfoMini label="Context" value={contextLabel} />
+      <InfoMini label="Backend" value={backendLabel} />
+    </div>
   );
 }
 
-function Metric({ icon: Icon, label, value }: { icon: typeof Gauge; label: string; value: string }) {
+function EvidenceUploadControl({
+  inputId,
+  uploadedEvidence,
+  onUploadEvidence,
+  onRemoveEvidence,
+}: {
+  inputId: string;
+  uploadedEvidence: UploadedEvidence[];
+  onUploadEvidence: (files: FileList | null) => void;
+  onRemoveEvidence: (id: string) => void;
+}) {
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-3">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Icon className="size-4 text-accent" />
+    <div className="space-y-2 rounded-md border border-border bg-card p-3">
+      <input
+        id={inputId}
+        type="file"
+        multiple
+        accept=".txt,.md,.csv,.json,.docx,.pdf"
+        className="sr-only"
+        onChange={(event) => {
+          onUploadEvidence(event.target.files);
+          event.target.value = "";
+        }}
+      />
+      <Button asChild className="w-full justify-start" variant="outline">
+        <label htmlFor={inputId}>
+          <Upload />
+          Upload evidence
+        </label>
+      </Button>
+      {uploadedEvidence.length > 0 && (
+        <div className="space-y-1">
+          {uploadedEvidence.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1 text-xs">
+              <span className="truncate">{item.source}</span>
+              <Button
+                aria-label={`Remove ${item.source}`}
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={() => onRemoveEvidence(item.id)}
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Metric({
+  icon: Icon,
+  label,
+  value,
+  inverse = false,
+}: {
+  icon: typeof Gauge;
+  label: string;
+  value: string;
+  inverse?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex h-14 flex-col justify-center rounded-md border px-3 py-2",
+        inverse
+          ? "border-white/[0.10] bg-white/[0.08] text-white"
+          : "border-white/[0.12] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+      )}
+    >
+      <div className={cn("flex items-center gap-2 text-xs", inverse ? "text-white/[0.64]" : "text-muted-foreground")}>
+        <Icon className={cn("size-4", inverse ? "text-primary" : "text-accent")} />
         {label}
       </div>
-      <p className="mt-1 text-lg font-semibold">{value}</p>
+      <p className="mt-0.5 text-base font-semibold leading-none">{value}</p>
     </div>
   );
 }
@@ -626,21 +875,23 @@ function IagPresentation({ gap }: { gap: GapInsight }) {
         <StatusPill label="Confidence" value={`${gap.confidence}%`} />
       </div>
       <section className="grid gap-5 xl:grid-cols-[1.4fr_0.9fr]">
-        <div className="rounded-md border border-border bg-panel p-5">
+        <div className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
           <p className="text-base leading-8 text-foreground">{gap.explanation}</p>
         </div>
-        <div className="rounded-md border border-border bg-panel p-5">
+        <div className="rounded-md border border-primary/20 bg-primary/5 p-5 shadow-[0_16px_54px_rgba(15,23,42,0.08)]">
           <h3 className="flex items-center gap-2 text-base font-semibold">
-            <LineChart className="size-4 text-accent" />
+            <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <LineChart className="size-4" />
+            </span>
             Recommended next steps
           </h3>
-          <ol className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground">
+          <ol className="mt-4 space-y-2">
             {gap.nextSteps.map((step, index) => (
-              <li key={step} className="flex gap-3">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-xs text-foreground">
+              <li key={step} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3 rounded-md border border-border bg-card/80 p-3 text-sm leading-6 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-semibold text-primary-foreground">
                   {index + 1}
                 </span>
-                {step}
+                <span>{step}</span>
               </li>
             ))}
           </ol>
@@ -662,7 +913,7 @@ function IagEditor({
   onSave: () => void;
 }) {
   return (
-    <div className="space-y-5 rounded-md border border-border bg-panel p-5">
+    <div className="space-y-5 rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Field label="Gap type">
           <Select value={gap.type.toLowerCase()} onValueChange={(value) => updateGap({ type: titleCase(value) })}>
@@ -725,7 +976,7 @@ function IagEditor({
       <div className="space-y-4">
         <h3 className="text-lg font-semibold">Key Arguments & Supporting Evidence</h3>
         {gap.evidence.map((item, index) => (
-          <div key={item.title} className="grid gap-3 rounded-md border border-border bg-card p-4 md:grid-cols-2">
+          <div key={item.title} className="grid gap-3 rounded-md border border-border bg-card/85 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] md:grid-cols-2">
             <Field label="Title">
               <Input
                 value={item.title}
@@ -760,13 +1011,13 @@ function updateEvidence(
 
 function EvidenceAccordion({ evidence }: { evidence: EvidenceBlock[] }) {
   return (
-    <Accordion type="single" collapsible className="rounded-md border border-border bg-panel px-4">
+    <Accordion type="single" collapsible className="rounded-md border border-border bg-panel/95 px-4 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
       <AccordionItem value="evidence" className="border-0">
         <AccordionTrigger>Key Arguments & Supporting Evidence</AccordionTrigger>
         <AccordionContent>
           <div className="grid gap-4 lg:grid-cols-3">
             {evidence.map((item) => (
-              <article key={item.title} className="rounded-md border border-border bg-card p-4">
+              <article key={item.title} className="rounded-md border border-border bg-card/85 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                 <h4 className="text-base font-semibold">{item.title}</h4>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.summary}</p>
                 <EvidenceList title="Key Facts" items={item.facts} />
@@ -876,7 +1127,7 @@ function FiveCSummary({
 }) {
   if (editMode) {
     return (
-      <div className="space-y-5 rounded-md border border-border bg-panel p-5">
+      <div className="space-y-5 rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
         <CompanyEditor profile={profile} setProfile={setProfile} />
         <Separator />
         <ShiftEditor />
@@ -938,7 +1189,7 @@ function FiveCSummary({
         <div className="rounded-md border border-accent/40 bg-accent/10 p-5">
           <h3 className="text-lg font-semibold">Job to be Done</h3>
           <p className="mt-3 text-base leading-7">{jobToBeDone}</p>
-          <Button className="mt-4" variant="accent" onClick={onGenerateJob}>
+          <Button className="mt-4" onClick={onGenerateJob}>
             <Sparkles />
             Generate Job to be Done
           </Button>
@@ -958,21 +1209,21 @@ function CompanyPanel({
   setProfile: (profile: typeof companyProfile) => void;
 }) {
   return editMode ? (
-    <div className="rounded-md border border-border bg-panel p-5">
+    <div className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
       <CompanyEditor profile={profile} setProfile={setProfile} />
     </div>
   ) : (
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-      <div className="rounded-md border border-border bg-panel p-5">
+      <div className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
         <p className="text-sm font-semibold uppercase text-muted-foreground">Belief</p>
         <p className="mt-2 text-lg leading-8">{profile.belief}</p>
       </div>
-      <div className="rounded-md border border-border bg-panel p-5">
+      <div className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
         <p className="text-sm font-semibold uppercase text-muted-foreground">Purpose</p>
         <h3 className="mt-2 font-serif text-2xl leading-9">{profile.purpose}</h3>
       </div>
       {Object.entries(profile.pursuits).map(([key, value]) => (
-        <article key={key} className="rounded-md border border-border bg-card p-5">
+        <article key={key} className="rounded-md border border-border bg-card/85 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
           <p className="text-sm font-semibold uppercase text-muted-foreground">{key}</p>
           <p className="mt-2 text-sm leading-7 text-muted-foreground">{value}</p>
         </article>
@@ -1132,7 +1383,7 @@ function CulturePanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyz
                 <SummaryBlock title="Underlying Tension">{item.tension}</SummaryBlock>
                 <SummaryBlock title="What This Means for People">{item.people}</SummaryBlock>
                 <SummaryBlock title="Marketing Implication">{item.implication}</SummaryBlock>
-                <div className="rounded-md border border-border bg-panel p-5 xl:col-span-2">
+                <div className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)] xl:col-span-2">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-semibold">Confidence</p>
                     <Badge variant="success">{item.confidence}%</Badge>
@@ -1173,13 +1424,13 @@ function ConsumerPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
   const [stage, setStage] = useState("Discovery");
   return (
     <div className="space-y-5">
-      <Accordion type="single" collapsible className="rounded-md border border-border bg-panel px-4">
+      <Accordion type="single" collapsible className="rounded-md border border-border bg-panel/95 px-4 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
         <AccordionItem value="personas" className="border-0">
           <AccordionTrigger>Personas</AccordionTrigger>
           <AccordionContent>
             <div className="grid gap-4 md:grid-cols-3">
               {["Pragmatic Parent", "Label Scrutinizer", "Nostalgic Buyer"].map((persona) => (
-                <article key={persona} className="rounded-md border border-border bg-card p-4">
+                <article key={persona} className="rounded-md border border-border bg-card/85 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                   <h4 className="font-semibold">{persona}</h4>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
                     Motivated by child wellbeing, practical routines, and confidence that the product delivers what it promises.
@@ -1212,13 +1463,13 @@ function ConsumerPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
               <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
                 <SummaryBlock title={item.stage}>{item.definition}</SummaryBlock>
                 <SummaryBlock title="Barrier Analysis">{item.barrier}</SummaryBlock>
-                <Accordion type="single" collapsible className="rounded-md border border-border bg-panel px-4 xl:col-span-2">
+                <Accordion type="single" collapsible className="rounded-md border border-border bg-panel/95 px-4 shadow-[0_16px_54px_rgba(0,0,0,0.16)] xl:col-span-2">
                   <AccordionItem value="reviews" className="border-0">
                     <AccordionTrigger>Reviews</AccordionTrigger>
                     <AccordionContent>
                       <div className="grid gap-3 md:grid-cols-2">
                         {item.reviews.map((review) => (
-                          <blockquote key={review} className="rounded-md border border-border bg-card p-4 text-sm leading-6 text-muted-foreground">
+                          <blockquote key={review} className="rounded-md border border-border bg-card/85 p-4 text-sm leading-6 text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                             "{review}"
                           </blockquote>
                         ))}
@@ -1275,7 +1526,7 @@ function CategoryPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
       </Tabs>
 
       <section className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
-        <div className="rounded-md border border-border bg-panel p-5">
+        <div className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-xl font-semibold">Analyses</h3>
             <Tooltip>
@@ -1293,12 +1544,16 @@ function CategoryPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
                 <PolarGrid stroke="hsl(var(--border))" />
                 <PolarAngleAxis dataKey="subject" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
                 <Radar dataKey="score" stroke="#a3e635" fill="#a3e635" fillOpacity={0.28} />
-                <ChartTooltip contentStyle={{ background: "#151712", border: "1px solid #34382e" }} />
+                <ChartTooltip
+                  contentStyle={chartTooltipContentStyle}
+                  labelStyle={chartTooltipTextStyle}
+                  itemStyle={chartTooltipTextStyle}
+                />
               </RadarChart>
             </ResponsiveContainer>
           </div>
         </div>
-        <div className="rounded-md border border-border bg-panel p-5">
+        <div className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
           <h3 className="text-xl font-semibold">Primary category need</h3>
           <p className="mt-3 text-sm leading-7 text-muted-foreground">{activeNeed.description}</p>
           <div className="mt-5">
@@ -1343,12 +1598,12 @@ function SustainabilityView({
       <div className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-2xl font-semibold">Edit Sustainability Analysis</h3>
-          <Button onClick={onGenerateGoals} variant="accent">
+          <Button onClick={onGenerateGoals}>
             <Plus />
             Generate new goals
           </Button>
         </div>
-        <Accordion type="multiple" className="rounded-md border border-border bg-panel px-4">
+        <Accordion type="multiple" className="rounded-md border border-border bg-panel/95 px-4 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
           {goals.map((goal) => (
             <AccordionItem key={goal.id} value={goal.id}>
               <AccordionTrigger>
@@ -1384,14 +1639,18 @@ function SustainabilityView({
             ))}
           </div>
         </div>
-        <div className="rounded-md border border-border bg-panel p-5">
+        <div className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
           <h3 className="text-xl font-semibold">Goal mix</h3>
           <div className="mt-5 h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={goalMix} layout="vertical" margin={{ left: 20, right: 20 }}>
                 <XAxis type="number" hide />
                 <YAxis dataKey="category" type="category" width={96} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
-                <ChartTooltip contentStyle={{ background: "#151712", border: "1px solid #34382e" }} />
+                <ChartTooltip
+                  contentStyle={chartTooltipContentStyle}
+                  labelStyle={chartTooltipTextStyle}
+                  itemStyle={chartTooltipTextStyle}
+                />
                 <Bar dataKey="count" radius={[0, 6, 6, 0]}>
                   {goalMix.map((_, index) => (
                     <Cell key={index} fill={chartColors[index]} />
@@ -1403,7 +1662,7 @@ function SustainabilityView({
         </div>
       </section>
 
-      <Accordion type="single" collapsible className="rounded-md border border-border bg-panel px-4">
+      <Accordion type="single" collapsible className="rounded-md border border-border bg-panel/95 px-4 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
         <AccordionItem value="other" className="border-0">
           <AccordionTrigger>View Other Goals & Commitments</AccordionTrigger>
           <AccordionContent>
@@ -1421,7 +1680,7 @@ function SustainabilityView({
 
 function GoalCard({ goal }: { goal: SustainabilityGoal }) {
   return (
-    <article className="rounded-md border border-border bg-card p-4">
+    <article className="rounded-md border border-border bg-card/85 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <div className="flex items-start justify-between gap-3">
         <h4 className="font-semibold leading-6">
           {goal.flagship && <Star className="mr-2 inline size-4 fill-current text-accent" />}
@@ -1539,7 +1798,7 @@ function NextStepsView({
 }) {
   if (editMode) {
     return (
-      <div className="rounded-md border border-border bg-panel p-5">
+      <div className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
         <h3 className="text-2xl font-semibold">Edit Recommendation</h3>
         <div className="mt-5 grid gap-4">
           <Field label="Product">
@@ -1589,7 +1848,7 @@ function NextStepsView({
 
   return (
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-      <section className="rounded-md border border-border bg-panel p-5">
+      <section className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
         <Badge variant="outline">Next recommended product</Badge>
         <h3 className="mt-4 font-serif text-4xl font-semibold">{recommendation.title}</h3>
         <p className="mt-4 text-sm leading-7 text-muted-foreground">
@@ -1598,7 +1857,7 @@ function NextStepsView({
         <p className="mt-5 text-xl font-semibold italic">{recommendation.headline}</p>
         <Dialog>
           <DialogTrigger asChild>
-            <Button className="mt-6" variant="accent">
+            <Button className="mt-6" variant="outline">
               <Maximize2 />
               Fullscreen
             </Button>
@@ -1622,7 +1881,7 @@ const recFromData = recommendation;
 
 function RecommendationDeck({ recommendation }: { recommendation: typeof recFromData }) {
   return (
-    <section className="rounded-md border border-border bg-panel p-5">
+    <section className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
       <h4 className="text-xl font-semibold">Strategic Overview</h4>
       <p className="mt-3 text-sm leading-7 text-muted-foreground">{recommendation.overview}</p>
       <h4 className="mt-6 text-xl font-semibold">Key Outcomes</h4>
@@ -1647,7 +1906,7 @@ function SelectionEditor({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-4 rounded-md border border-border bg-panel p-5">
+    <div className="space-y-4 rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-xl font-semibold">{itemLabel}</h3>
         <div className="flex items-center gap-3">
@@ -1671,20 +1930,20 @@ function SummarizePanel({
   onReanalyze: () => void;
 }) {
   return (
-    <div className="rounded-md border border-border bg-panel p-5">
+    <div className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
       <h3 className="text-lg font-semibold">{title}</h3>
       <p className="mt-2 text-sm text-muted-foreground">
         Here you can reanalyze the opportunity if anything changed, based on:
       </p>
       <ul className="mt-4 grid gap-2 md:grid-cols-2">
         {items.map((item) => (
-          <li key={item} className="flex gap-2 rounded-md bg-muted px-3 py-2 text-sm">
+          <li key={item} className="flex gap-2 rounded-md bg-muted/80 px-3 py-2 text-sm">
             <CheckCircle2 className="mt-0.5 size-4 text-accent" />
             {item}
           </li>
         ))}
       </ul>
-      <Button className="mt-4" variant="secondary" onClick={onReanalyze}>
+      <Button className="mt-4" onClick={onReanalyze}>
         <RefreshCw />
         Reanalyze
       </Button>
@@ -1694,7 +1953,7 @@ function SummarizePanel({
 
 function SummaryBlock({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <article className="rounded-md border border-border bg-panel p-5">
+    <article className="rounded-md border border-border bg-panel/95 p-5 shadow-[0_16px_54px_rgba(0,0,0,0.16)]">
       <h3 className="text-lg font-semibold">{title}</h3>
       <div className="mt-3 space-y-3 text-sm leading-7 text-muted-foreground">{children}</div>
     </article>
@@ -1703,7 +1962,7 @@ function SummaryBlock({ title, children }: { title: string; children: React.Reac
 
 function StatusPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border bg-card px-4 py-3">
+    <div className="rounded-md border border-border bg-card/85 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p>
       <p className="mt-1 text-lg font-semibold">{value}</p>
     </div>
@@ -1712,7 +1971,7 @@ function StatusPill({ label, value }: { label: string; value: string }) {
 
 function InfoMini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md bg-muted px-3 py-2">
+    <div className="rounded-md border border-border/70 bg-muted/80 px-3 py-2">
       <p className="text-[10px] font-semibold uppercase text-muted-foreground">{label}</p>
       <p className="mt-1 truncate text-xs text-foreground">{value}</p>
     </div>
@@ -1731,8 +1990,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function ResponsiveTabsList({ children }: { children: React.ReactNode }) {
   return (
-    <div className="overflow-x-auto pb-1">
-      <TabsList className="w-max min-w-full justify-start">{children}</TabsList>
+    <div className="z-20 -mx-1 rounded-md bg-background/85 px-1 pb-1 backdrop-blur lg:sticky lg:top-[104px]">
+      <div className="relative overflow-hidden rounded-md after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-10 after:bg-gradient-to-l after:from-background after:to-transparent">
+        <div className="overflow-x-auto pb-1">
+          <TabsList className="w-max min-w-full justify-start [&_[role=tab]]:h-9 [&_[role=tab]]:px-2.5 [&_[role=tab]]:text-xs sm:[&_[role=tab]]:text-sm">
+            {children}
+          </TabsList>
+        </div>
+      </div>
     </div>
   );
 }
