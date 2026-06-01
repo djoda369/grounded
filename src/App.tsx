@@ -546,7 +546,7 @@ function App() {
   return (
     <TooltipProvider>
       <div className="h-screen overflow-hidden bg-background text-foreground">
-        <div className="flex h-full overflow-hidden">
+        <div className="flex h-full min-h-0 overflow-hidden">
           <Sidebar
             page={page}
             setPage={(nextPage) => {
@@ -587,7 +587,7 @@ function App() {
             onGenerateGoals={addNutritionGoal}
           />
 
-          <main className="min-w-0 flex-1 overflow-y-auto">
+          <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto flex min-h-full w-full max-w-[1480px] flex-col px-5 py-5 md:px-8 lg:px-10">
               {page !== "home" && (
                 <Header
@@ -2019,17 +2019,18 @@ function CulturePanel({
     <div className="space-y-5">
       <h3 className="text-xl font-semibold">Cultural Drivers</h3>
       <Tabs value={driver} onValueChange={setDriver}>
-        <ResponsiveTabsList>
+        <ResponsiveTabsList containedScroll>
           {culturalDrivers.map((item) => (
             <TabsTrigger
               key={item.title}
               value={item.title}
-              className="max-w-[280px] gap-2 text-wrap"
+              className="max-w-[320px] shrink-0 justify-start gap-2 overflow-hidden border border-white/10 bg-white/10 hover:bg-white/15 data-[state=active]:border-border data-[state=active]:bg-background"
+              title={item.title}
             >
               {item.selected && (
                 <Star className="size-4 fill-current text-accent" />
               )}
-              {item.title}
+              <span className="min-w-0 truncate">{item.title}</span>
             </TabsTrigger>
           ))}
         </ResponsiveTabsList>
@@ -2327,17 +2328,18 @@ function CategoryPanel({
     <div className="space-y-5">
       <h3 className="text-xl font-semibold">Needstates</h3>
       <Tabs value={need} onValueChange={setNeed}>
-        <ResponsiveTabsList>
+        <ResponsiveTabsList containedScroll>
           {needStates.map((item) => (
             <TabsTrigger
               key={item.name}
               value={item.name}
-              className="max-w-[290px] gap-2 text-wrap"
+              className="max-w-[320px] shrink-0 justify-start gap-2 overflow-hidden border border-white/10 bg-white/10 hover:bg-white/15 data-[state=active]:border-border data-[state=active]:bg-background"
+              title={item.name}
             >
               {item.selected && (
                 <Star className="size-4 fill-current text-accent" />
               )}
-              {item.name}
+              <span className="min-w-0 truncate">{item.name}</span>
             </TabsTrigger>
           ))}
         </ResponsiveTabsList>
@@ -3032,7 +3034,23 @@ function Field({
   );
 }
 
-function ResponsiveTabsList({ children }: { children: React.ReactNode }) {
+function ResponsiveTabsList({
+  children,
+  containedScroll = false,
+}: {
+  children: React.ReactNode;
+  containedScroll?: boolean;
+}) {
+  if (containedScroll) {
+    return (
+      <div className="overflow-x-auto rounded-md border border-border bg-muted/50 p-1">
+        <TabsList className="w-max min-w-full justify-start border-0 bg-transparent p-0">
+          {children}
+        </TabsList>
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-x-auto pb-1">
       <TabsList className="w-max min-w-full justify-start">{children}</TabsList>
