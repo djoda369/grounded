@@ -112,6 +112,8 @@ import {
   type AnalysisState,
   type UploadedEvidence,
 } from "@/lib/phase1-api";
+import groundedLogo from "@/assets/grounded-logo.png";
+import iagLogo from "@/assets/iag-logo.png";
 
 const workspaceStorageKey = "gaia-workspace-v1";
 
@@ -715,9 +717,13 @@ function Sidebar({
 
   return (
     <aside className="hidden h-full w-[290px] shrink-0 overflow-y-auto border-r border-border bg-sidebar px-5 py-5 md:block">
-      <nav className="flex flex-col gap-6">
+      <nav className="flex min-h-full flex-col gap-6">
         <div>
-          <h1 className="font-serif text-3xl font-semibold">Gaia</h1>
+          <img
+            src={groundedLogo}
+            alt="Grounded World"
+            className="h-auto w-full object-contain"
+          />
         </div>
 
         <div className="flex flex-col gap-2">
@@ -912,6 +918,16 @@ function Sidebar({
                 Live backend analysis applied.
               </p>
             )}
+          </div>
+        )}
+
+        {isHome && (
+          <div className="mt-auto pt-2">
+            <img
+              src={iagLogo}
+              alt="Intention Action Gap"
+              className="h-auto w-full rounded-md object-contain"
+            />
           </div>
         )}
       </nav>
