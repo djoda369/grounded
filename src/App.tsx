@@ -146,6 +146,14 @@ function cloneDraft<T>(draft: T): T {
   return structuredClone(draft);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function restoreArray<T>(savedValue: unknown, defaultValue: T[]): T[] {
+  return Array.isArray(savedValue) ? (savedValue as T[]) : cloneDraft(defaultValue);
+}
+
 function loadPersistedWorkspace(): Partial<PersistedWorkspace> | null {
   if (typeof window === "undefined") return null;
 
@@ -153,48 +161,79 @@ function loadPersistedWorkspace(): Partial<PersistedWorkspace> | null {
     const raw = window.localStorage.getItem(workspaceStorageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
+    return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
 }
 
-function restoreGaps(savedGaps?: Partial<Record<FiveCTab, GapInsight>>) {
+function restoreGaps(savedGaps?: unknown) {
   const defaults = cloneGaps();
-  if (!savedGaps) return defaults;
+  if (!isRecord(savedGaps)) return defaults;
 
   return Object.fromEntries(
     fiveCTabs.map(({ key }) => {
-      const saved = savedGaps[key];
+      const saved = isRecord(savedGaps[key]) ? (savedGaps[key] as Partial<GapInsight>) : undefined;
       return [
         key,
         {
           ...defaults[key],
           ...saved,
-          nextSteps: saved?.nextSteps ?? defaults[key].nextSteps,
-          evidence: saved?.evidence ?? defaults[key].evidence,
+          nextSteps: Array.isArray(saved?.nextSteps) ? saved.nextSteps : defaults[key].nextSteps,
+          evidence: Array.isArray(saved?.evidence) ? saved.evidence : defaults[key].evidence,
         },
       ];
     }),
   ) as Record<FiveCTab, GapInsight>;
 }
 
-function restoreProfile(savedProfile?: Partial<CompanyProfileDraft>) {
+function restoreStrategicShifts(savedShifts?: unknown) {
+  if (!isRecord(savedShifts)) return cloneDraft(strategicShifts);
+
+  return {
+    competition: {
+      ...strategicShifts.competition,
+      ...(isRecord(savedShifts.competition) ? savedShifts.competition : {}),
+      to: Array.isArray((savedShifts.competition as { to?: unknown } | undefined)?.to)
+        ? (savedShifts.competition as { to: string[] }).to
+        : strategicShifts.competition.to,
+    },
+    culture: {
+      ...strategicShifts.culture,
+      ...(isRecord(savedShifts.culture) ? savedShifts.culture : {}),
+    },
+    consumer: {
+      ...strategicShifts.consumer,
+      ...(isRecord(savedShifts.consumer) ? savedShifts.consumer : {}),
+    },
+    category: {
+      ...strategicShifts.category,
+      ...(isRecord(savedShifts.category) ? savedShifts.category : {}),
+    },
+    job: typeof savedShifts.job === "string" ? savedShifts.job : strategicShifts.job,
+  };
+}
+
+function restoreProfile(savedProfile?: unknown) {
+  if (!isRecord(savedProfile)) return cloneDraft(companyProfile);
+
   return {
     ...companyProfile,
     ...savedProfile,
     pursuits: {
       ...companyProfile.pursuits,
-      ...savedProfile?.pursuits,
+      ...(isRecord(savedProfile.pursuits) ? savedProfile.pursuits : {}),
     },
   };
 }
 
-function restoreRecommendation(savedRecommendation?: Partial<RecommendationDraft>) {
+function restoreRecommendation(savedRecommendation?: unknown) {
+  if (!isRecord(savedRecommendation)) return cloneDraft(recommendation);
+
   return {
     ...recommendation,
     ...savedRecommendation,
-    outcomes: savedRecommendation?.outcomes ?? recommendation.outcomes,
+    outcomes: Array.isArray(savedRecommendation.outcomes) ? savedRecommendation.outcomes : recommendation.outcomes,
   };
 }
 
@@ -210,26 +249,28 @@ function App() {
   );
   const [profile, setProfile] = useState<CompanyProfileDraft>(() => restoreProfile(savedWorkspace?.profile));
   const [jobToBeDone, setJobToBeDone] = useState(() => savedWorkspace?.jobToBeDone ?? strategicShifts.job);
-  const [goals, setGoals] = useState<SustainabilityGoal[]>(() => savedWorkspace?.goals ?? cloneDraft(initialGoals));
+  const [goals, setGoals] = useState<SustainabilityGoal[]>(() =>
+    restoreArray(savedWorkspace?.goals, initialGoals),
+  );
   const [rec, setRec] = useState<RecommendationDraft>(() => restoreRecommendation(savedWorkspace?.recommendation));
   const [strategicShiftDrafts, setStrategicShiftDrafts] = useState<StrategicShiftDraft>(() =>
-    savedWorkspace?.strategicShifts ?? cloneDraft(strategicShifts),
+    restoreStrategicShifts(savedWorkspace?.strategicShifts),
   );
   const [competitorDrafts, setCompetitorDrafts] = useState<CompetitorDrafts>(() =>
-    savedWorkspace?.competitors ?? cloneDraft(competitors),
+    restoreArray(savedWorkspace?.competitors, competitors) as CompetitorDrafts,
   );
   const [culturalDriverDrafts, setCulturalDriverDrafts] = useState<CulturalDriverDrafts>(() =>
-    savedWorkspace?.culturalDrivers ?? cloneDraft(culturalDrivers),
+    restoreArray(savedWorkspace?.culturalDrivers, culturalDrivers) as CulturalDriverDrafts,
   );
   const [consumerStageDrafts, setConsumerStageDrafts] = useState<ConsumerStageDrafts>(() =>
-    savedWorkspace?.consumerStages ?? cloneDraft(consumerStages),
+    restoreArray(savedWorkspace?.consumerStages, consumerStages) as ConsumerStageDrafts,
   );
   const [needStateDrafts, setNeedStateDrafts] = useState<NeedStateDrafts>(() =>
-    savedWorkspace?.needStates ?? cloneDraft(needStates),
+    restoreArray(savedWorkspace?.needStates, needStates) as NeedStateDrafts,
   );
   const [analysisState, setAnalysisState] = useState<AnalysisState>({ status: "idle", message: "" });
   const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence[]>(() =>
-    savedWorkspace?.uploadedEvidence ?? [],
+    restoreArray(savedWorkspace?.uploadedEvidence, []),
   );
 
   const flagshipCount = goals.filter((goal) => goal.flagship).length;
