@@ -83,16 +83,50 @@ const labels: Record<FiveCTab, string> = {
 };
 
 export async function requestPhase1Analysis(payload: Phase1Payload): Promise<Phase1AnalysisResponse> {
-  const response = await fetch("/api/phase1/analyze", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const data = await response.json();
+  let response: Response;
+  try {
+    response = await fetch("/api/phase1/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Phase 1 backend is unreachable: ${error.message}`
+        : "Phase 1 backend is unreachable.",
+    );
+  }
+
+  const responseText = await response.text();
+  const data = parseJsonResponse(responseText, response);
+
   if (!response.ok) {
     throw new Error(data?.error || "Phase 1 analysis failed.");
   }
   return data as Phase1AnalysisResponse;
+}
+
+function parseJsonResponse(responseText: string, response: Response) {
+  if (!responseText.trim()) {
+    throw new Error(
+      response.ok
+        ? "Phase 1 backend returned an empty response."
+        : `Phase 1 backend returned ${response.status} ${
+            response.statusText || "without a response body"
+          }. Make sure the local API is running at http://127.0.0.1:8787.`,
+    );
+  }
+
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    throw new Error(
+      response.ok
+        ? "Phase 1 backend returned a non-JSON response."
+        : `Phase 1 backend returned ${response.status} ${response.statusText || "with a non-JSON response"}.`,
+    );
+  }
 }
 
 export async function fileToUploadedEvidence(file: File): Promise<UploadedEvidence> {
