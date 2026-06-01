@@ -114,6 +114,9 @@ import {
 } from "@/lib/phase1-api";
 import groundedLogo from "@/assets/grounded-logo.png";
 import iagLogo from "@/assets/iag-logo.png";
+import baLogo from "@/assets/ba-logo.png";
+import fwLogo from "@/assets/fw-logo.png";
+import saLogo from "@/assets/sa-logo.png";
 
 const workspaceStorageKey = "gaia-workspace-v1";
 
@@ -2791,6 +2794,8 @@ function NextStepsView({
   setRecommendation: (value: typeof recFromData) => void;
   onSave: () => void;
 }) {
+  const recommendationLogo = getRecommendationLogo(recommendation.title);
+
   if (editMode) {
     return (
       <div className="rounded-md border border-border bg-panel p-5">
@@ -2863,7 +2868,8 @@ function NextStepsView({
 
   return (
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-      <section className="rounded-md border border-border bg-panel p-5">
+      <section className="flex rounded-md border border-border bg-panel p-5">
+        <div className="flex min-h-[560px] w-full flex-col">
         <h3 className="font-serif text-4xl font-semibold">
           {recommendation.title}
         </h3>
@@ -2889,6 +2895,14 @@ function NextStepsView({
             <RecommendationDeck recommendation={recommendation} />
           </DialogContent>
         </Dialog>
+        <div className="mt-auto pt-8">
+          <img
+            src={recommendationLogo.src}
+            alt={recommendationLogo.alt}
+            className="h-auto w-full rounded-md object-contain"
+          />
+        </div>
+        </div>
       </section>
 
       <RecommendationDeck recommendation={recommendation} />
@@ -2897,6 +2911,20 @@ function NextStepsView({
 }
 
 const recFromData = recommendation;
+
+function getRecommendationLogo(title: string) {
+  const normalized = title.toLowerCase();
+
+  if (normalized.includes("brand")) {
+    return { src: baLogo, alt: "Brand Activation For Good" };
+  }
+
+  if (normalized.includes("fly") || normalized.includes("wheel")) {
+    return { src: fwLogo, alt: "Fly Wheel Of Impact" };
+  }
+
+  return { src: saLogo, alt: "Sustain-Agility" };
+}
 
 function RecommendationDeck({
   recommendation,
