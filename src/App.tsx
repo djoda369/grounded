@@ -1079,8 +1079,8 @@ function HomeView({ setPage }: { setPage: (page: PageKey) => void }) {
             Close the Gap Between Brand, Sustainability & Business Performance
           </h2>
           <p className="mt-5 max-w-3xl text-base leading-8 text-muted-foreground">
-            Gaia is a guided strategy workspace for turning brand context, 5C
-            research, and sustainability ambition into an executive-ready
+            This is an AI guided strategy workspace for turning brand context,
+            5C research, and sustainability ambition into an executive-ready
             intention-action gap analysis and set of recommendations. Work
             through the modules in order, edit assumptions where needed, run
             backend analysis when new evidence arrives, then export the summary
@@ -2870,38 +2870,33 @@ function NextStepsView({
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
       <section className="flex rounded-md border border-border bg-panel p-5">
         <div className="flex min-h-[560px] w-full flex-col">
-        <h3 className="font-serif text-4xl font-semibold">
-          {recommendation.title}
-        </h3>
+        <img
+          src={recommendationLogo.src}
+          alt={recommendationLogo.alt}
+          className="h-auto w-full max-w-[520px] rounded-md object-contain"
+        />
         <p className="mt-4 text-sm leading-7 text-muted-foreground">
           <strong className="text-foreground">Best for:</strong>{" "}
           {recommendation.bestFor}
-        </p>
-        <p className="mt-5 text-xl font-semibold italic">
-          {recommendation.headline}
-        </p>
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button className="mt-6" variant="accent">
-              <Maximize2 />
-              Fullscreen
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{recommendation.title}</DialogTitle>
-              <DialogDescription>{recommendation.headline}</DialogDescription>
-            </DialogHeader>
+          </p>
+          <p className="mt-5 text-xl font-semibold italic">
+            {recommendation.headline}
+          </p>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button className="mt-6" variant="accent">
+                <Maximize2 />
+                Fullscreen
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{recommendation.title}</DialogTitle>
+                <DialogDescription>{recommendation.headline}</DialogDescription>
+              </DialogHeader>
             <RecommendationDeck recommendation={recommendation} />
           </DialogContent>
         </Dialog>
-        <div className="mt-auto pt-8">
-          <img
-            src={recommendationLogo.src}
-            alt={recommendationLogo.alt}
-            className="h-auto w-full rounded-md object-contain"
-          />
-        </div>
         </div>
       </section>
 
