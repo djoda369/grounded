@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
+import os
 import sys
 import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,6 +23,7 @@ from core.phase1.storage import Phase1ProjectStore, ProjectNotFoundError, input_
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
+DIST_DIR = ROOT_DIR / "dist"
 
 
 class Phase1APIHandler(BaseHTTPRequestHandler):
@@ -51,6 +54,9 @@ class Phase1APIHandler(BaseHTTPRequestHandler):
             return
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
+            return
+
+        if self._send_static_asset():
             return
 
         self._send_json({"error": "Not found"}, status=404)
@@ -170,6 +176,26 @@ class Phase1APIHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_static_asset(self) -> bool:
+        if not DIST_DIR.exists():
+            return False
+        raw_path = urlsplit(self.path).path
+        relative = raw_path.lstrip("/") or "index.html"
+        target = (DIST_DIR / relative).resolve()
+        if not str(target).startswith(str(DIST_DIR.resolve())):
+            self._send_json({"error": "Not found"}, status=404)
+            return True
+        if not target.exists() or not target.is_file():
+            target = DIST_DIR / "index.html"
+        body = target.read_bytes()
+        content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return True
 
 
 def analyze_payload(
@@ -448,4 +474,7 @@ def run(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
 
 
 if __name__ == "__main__":
-    run()
+    run(
+        os.getenv("HOST", DEFAULT_HOST),
+        int(os.getenv("PORT", str(DEFAULT_PORT))),
+    )

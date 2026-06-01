@@ -7,6 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
+    "start": "HOST=0.0.0.0 python3 backend/api.py",
     "typecheck": "tsc -b"
   },
   "dependencies": {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -19,8 +20,8 @@ class ProjectNotFoundError(ValueError):
 
 
 class Phase1ProjectStore:
-    def __init__(self, db_path: str | Path = DEFAULT_DB_PATH):
-        self.db_path = Path(db_path)
+    def __init__(self, db_path: str | Path | None = None):
+        self.db_path = Path(db_path) if db_path is not None else default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.initialize()
 
@@ -390,6 +391,11 @@ def input_checksum(documents: Iterable[dict[str, str]], context: str = "") -> st
         digest.update(b"\0")
     digest.update(context.encode("utf-8"))
     return digest.hexdigest()
+
+
+def default_db_path() -> Path:
+    configured = os.getenv("GAIA_PHASE1_DB_PATH")
+    return Path(configured) if configured else DEFAULT_DB_PATH
 
 
 def utc_now() -> str:
