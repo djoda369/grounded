@@ -2867,13 +2867,13 @@ function NextStepsView({
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+    <div className="grid items-start gap-5 xl:grid-cols-[0.9fr_1.1fr]">
       <section className="flex rounded-md border border-border bg-panel p-5">
-        <div className="flex min-h-[560px] w-full flex-col">
+        <div className="flex w-full flex-col">
         <img
           src={recommendationLogo.src}
           alt={recommendationLogo.alt}
-          className="h-auto w-full max-w-[520px] rounded-md object-contain"
+          className="h-auto w-full rounded-md object-contain"
         />
         <p className="mt-4 text-sm leading-7 text-muted-foreground">
           <strong className="text-foreground">Best for:</strong>{" "}
