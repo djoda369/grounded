@@ -57,10 +57,22 @@ import {
   type PageKey,
   type SustainabilityGoal,
 } from "@/data/gaia";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -84,7 +96,12 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   buildBaselineEvidenceText,
@@ -98,7 +115,11 @@ import {
 
 const workspaceStorageKey = "gaia-workspace-v1";
 
-const fiveCTabs: Array<{ key: FiveCTab; label: string; icon: typeof Building2 }> = [
+const fiveCTabs: Array<{
+  key: FiveCTab;
+  label: string;
+  icon: typeof Building2;
+}> = [
   { key: "summary", label: "Executive Summary", icon: Layers3 },
   { key: "company", label: "Company", icon: Building2 },
   { key: "competition", label: "Competition", icon: BarChart3 },
@@ -110,10 +131,9 @@ const fiveCTabs: Array<{ key: FiveCTab; label: string; icon: typeof Building2 }>
 const chartColors = ["#a3e635", "#38bdf8", "#fb7185", "#fbbf24", "#c084fc"];
 
 function cloneGaps() {
-  return Object.fromEntries(gapInsights.map((gap) => [gap.key, structuredClone(gap)])) as Record<
-    FiveCTab,
-    GapInsight
-  >;
+  return Object.fromEntries(
+    gapInsights.map((gap) => [gap.key, structuredClone(gap)]),
+  ) as Record<FiveCTab, GapInsight>;
 }
 
 type RecommendationDraft = typeof recommendation;
@@ -151,7 +171,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function restoreArray<T>(savedValue: unknown, defaultValue: T[]): T[] {
-  return Array.isArray(savedValue) ? (savedValue as T[]) : cloneDraft(defaultValue);
+  return Array.isArray(savedValue)
+    ? (savedValue as T[])
+    : cloneDraft(defaultValue);
 }
 
 function loadPersistedWorkspace(): Partial<PersistedWorkspace> | null {
@@ -173,14 +195,20 @@ function restoreGaps(savedGaps?: unknown) {
 
   return Object.fromEntries(
     fiveCTabs.map(({ key }) => {
-      const saved = isRecord(savedGaps[key]) ? (savedGaps[key] as Partial<GapInsight>) : undefined;
+      const saved = isRecord(savedGaps[key])
+        ? (savedGaps[key] as Partial<GapInsight>)
+        : undefined;
       return [
         key,
         {
           ...defaults[key],
           ...saved,
-          nextSteps: Array.isArray(saved?.nextSteps) ? saved.nextSteps : defaults[key].nextSteps,
-          evidence: Array.isArray(saved?.evidence) ? saved.evidence : defaults[key].evidence,
+          nextSteps: Array.isArray(saved?.nextSteps)
+            ? saved.nextSteps
+            : defaults[key].nextSteps,
+          evidence: Array.isArray(saved?.evidence)
+            ? saved.evidence
+            : defaults[key].evidence,
         },
       ];
     }),
@@ -194,7 +222,9 @@ function restoreStrategicShifts(savedShifts?: unknown) {
     competition: {
       ...strategicShifts.competition,
       ...(isRecord(savedShifts.competition) ? savedShifts.competition : {}),
-      to: Array.isArray((savedShifts.competition as { to?: unknown } | undefined)?.to)
+      to: Array.isArray(
+        (savedShifts.competition as { to?: unknown } | undefined)?.to,
+      )
         ? (savedShifts.competition as { to: string[] }).to
         : strategicShifts.competition.to,
     },
@@ -210,7 +240,10 @@ function restoreStrategicShifts(savedShifts?: unknown) {
       ...strategicShifts.category,
       ...(isRecord(savedShifts.category) ? savedShifts.category : {}),
     },
-    job: typeof savedShifts.job === "string" ? savedShifts.job : strategicShifts.job,
+    job:
+      typeof savedShifts.job === "string"
+        ? savedShifts.job
+        : strategicShifts.job,
   };
 }
 
@@ -233,7 +266,9 @@ function restoreRecommendation(savedRecommendation?: unknown) {
   return {
     ...recommendation,
     ...savedRecommendation,
-    outcomes: Array.isArray(savedRecommendation.outcomes) ? savedRecommendation.outcomes : recommendation.outcomes,
+    outcomes: Array.isArray(savedRecommendation.outcomes)
+      ? savedRecommendation.outcomes
+      : recommendation.outcomes,
   };
 }
 
@@ -247,30 +282,55 @@ function App() {
   const [gapDrafts, setGapDrafts] = useState<Record<FiveCTab, GapInsight>>(() =>
     restoreGaps(savedWorkspace?.gapDrafts),
   );
-  const [profile, setProfile] = useState<CompanyProfileDraft>(() => restoreProfile(savedWorkspace?.profile));
-  const [jobToBeDone, setJobToBeDone] = useState(() => savedWorkspace?.jobToBeDone ?? strategicShifts.job);
+  const [profile, setProfile] = useState<CompanyProfileDraft>(() =>
+    restoreProfile(savedWorkspace?.profile),
+  );
+  const [jobToBeDone, setJobToBeDone] = useState(
+    () => savedWorkspace?.jobToBeDone ?? strategicShifts.job,
+  );
   const [goals, setGoals] = useState<SustainabilityGoal[]>(() =>
     restoreArray(savedWorkspace?.goals, initialGoals),
   );
-  const [rec, setRec] = useState<RecommendationDraft>(() => restoreRecommendation(savedWorkspace?.recommendation));
-  const [strategicShiftDrafts, setStrategicShiftDrafts] = useState<StrategicShiftDraft>(() =>
-    restoreStrategicShifts(savedWorkspace?.strategicShifts),
+  const [rec, setRec] = useState<RecommendationDraft>(() =>
+    restoreRecommendation(savedWorkspace?.recommendation),
   );
-  const [competitorDrafts, setCompetitorDrafts] = useState<CompetitorDrafts>(() =>
-    restoreArray(savedWorkspace?.competitors, competitors) as CompetitorDrafts,
+  const [strategicShiftDrafts, setStrategicShiftDrafts] =
+    useState<StrategicShiftDraft>(() =>
+      restoreStrategicShifts(savedWorkspace?.strategicShifts),
+    );
+  const [competitorDrafts, setCompetitorDrafts] = useState<CompetitorDrafts>(
+    () =>
+      restoreArray(
+        savedWorkspace?.competitors,
+        competitors,
+      ) as CompetitorDrafts,
   );
-  const [culturalDriverDrafts, setCulturalDriverDrafts] = useState<CulturalDriverDrafts>(() =>
-    restoreArray(savedWorkspace?.culturalDrivers, culturalDrivers) as CulturalDriverDrafts,
+  const [culturalDriverDrafts, setCulturalDriverDrafts] =
+    useState<CulturalDriverDrafts>(
+      () =>
+        restoreArray(
+          savedWorkspace?.culturalDrivers,
+          culturalDrivers,
+        ) as CulturalDriverDrafts,
+    );
+  const [consumerStageDrafts, setConsumerStageDrafts] =
+    useState<ConsumerStageDrafts>(
+      () =>
+        restoreArray(
+          savedWorkspace?.consumerStages,
+          consumerStages,
+        ) as ConsumerStageDrafts,
+    );
+  const [needStateDrafts, setNeedStateDrafts] = useState<NeedStateDrafts>(
+    () =>
+      restoreArray(savedWorkspace?.needStates, needStates) as NeedStateDrafts,
   );
-  const [consumerStageDrafts, setConsumerStageDrafts] = useState<ConsumerStageDrafts>(() =>
-    restoreArray(savedWorkspace?.consumerStages, consumerStages) as ConsumerStageDrafts,
-  );
-  const [needStateDrafts, setNeedStateDrafts] = useState<NeedStateDrafts>(() =>
-    restoreArray(savedWorkspace?.needStates, needStates) as NeedStateDrafts,
-  );
-  const [analysisState, setAnalysisState] = useState<AnalysisState>({ status: "idle", message: "" });
-  const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence[]>(() =>
-    restoreArray(savedWorkspace?.uploadedEvidence, []),
+  const [analysisState, setAnalysisState] = useState<AnalysisState>({
+    status: "idle",
+    message: "",
+  });
+  const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence[]>(
+    () => restoreArray(savedWorkspace?.uploadedEvidence, []),
   );
 
   const flagshipCount = goals.filter((goal) => goal.flagship).length;
@@ -304,13 +364,21 @@ function App() {
     };
 
     try {
-      window.localStorage.setItem(workspaceStorageKey, JSON.stringify(workspace));
+      window.localStorage.setItem(
+        workspaceStorageKey,
+        JSON.stringify(workspace),
+      );
       announce(message);
     } catch {
       const workspaceWithoutUploads = { ...workspace, uploadedEvidence: [] };
       try {
-        window.localStorage.setItem(workspaceStorageKey, JSON.stringify(workspaceWithoutUploads));
-        announce(`${message} Uploaded files were not saved because browser storage is limited.`);
+        window.localStorage.setItem(
+          workspaceStorageKey,
+          JSON.stringify(workspaceWithoutUploads),
+        );
+        announce(
+          `${message} Uploaded files were not saved because browser storage is limited.`,
+        );
       } catch {
         announce("Workspace could not be saved in this browser.");
       }
@@ -341,21 +409,40 @@ function App() {
     };
 
     pdf.setFont("helvetica", "bold");
-    write(`Gaia ${profile.market} - ${pageOptions.find((option) => option.key === page)?.label}`, 16, 14);
+    write(
+      `Gaia ${profile.market} - ${pageOptions.find((option) => option.key === page)?.label}`,
+      16,
+      14,
+    );
     pdf.setFont("helvetica", "normal");
     write(`Exported view: ${new Date().toLocaleDateString()}`, 9, 12);
     write(gapDrafts.summary.explanation, 10, 12);
     write("Recommended next steps", 12, 6);
-    gapDrafts.summary.nextSteps.forEach((step, index) => write(`${index + 1}. ${step}`, 9, 4));
+    gapDrafts.summary.nextSteps.forEach((step, index) =>
+      write(`${index + 1}. ${step}`, 9, 4),
+    );
     pdf.save("gaia-yoplait-iag-summary.pdf");
     announce("PDF export generated for the current Yoplait diagnostic.");
   }
 
   async function reanalyze(label: string) {
-    setAnalysisState({ status: "loading", message: `Analyzing ${label} with the Phase 1 backend.` });
+    setAnalysisState({
+      status: "loading",
+      message: `Analyzing ${label} with the Phase 1 backend.`,
+    });
     try {
-      const fallbackText = buildBaselineEvidenceText(profile, jobToBeDone, goals, gapDrafts);
-      const payload = buildPhase1Payload(profile.market, context, uploadedEvidence, fallbackText);
+      const fallbackText = buildBaselineEvidenceText(
+        profile,
+        jobToBeDone,
+        goals,
+        gapDrafts,
+      );
+      const payload = buildPhase1Payload(
+        profile.market,
+        context,
+        uploadedEvidence,
+        fallbackText,
+      );
       const analysis = await requestPhase1Analysis(payload);
       const mapped = mapPhase1ToFrontend(analysis, profile);
 
@@ -368,29 +455,46 @@ function App() {
       }
       setPage("iag");
       setActiveGap("summary");
-      setAnalysisState({ status: "ready", message: `Live backend analysis applied to ${label}.` });
+      setAnalysisState({
+        status: "ready",
+        message: `Live backend analysis applied to ${label}.`,
+      });
     } catch (error) {
       setAnalysisState({
         status: "error",
-        message: error instanceof Error ? error.message : "Phase 1 backend analysis failed.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Phase 1 backend analysis failed.",
       });
     }
   }
 
   async function uploadEvidence(files: FileList | null) {
     if (!files?.length) return;
-    setAnalysisState({ status: "loading", message: "Preparing uploaded evidence." });
+    setAnalysisState({
+      status: "loading",
+      message: "Preparing uploaded evidence.",
+    });
     try {
-      const uploads = await Promise.all(Array.from(files).map(fileToUploadedEvidence));
+      const uploads = await Promise.all(
+        Array.from(files).map(fileToUploadedEvidence),
+      );
       setUploadedEvidence((current) => {
         const existing = new Set(current.map((item) => item.id));
-        return [...current, ...uploads.filter((item) => !existing.has(item.id))];
+        return [
+          ...current,
+          ...uploads.filter((item) => !existing.has(item.id)),
+        ];
       });
       setAnalysisState({ status: "idle", message: "" });
     } catch (error) {
       setAnalysisState({
         status: "error",
-        message: error instanceof Error ? error.message : "Could not prepare uploaded evidence.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Could not prepare uploaded evidence.",
       });
     }
   }
@@ -413,7 +517,9 @@ function App() {
 
   function addNutritionGoal() {
     if (goals.some((goal) => goal.id === "nutrition-scorecard")) {
-      announce("Nutrition scorecard goal is already in the sustainability set.");
+      announce(
+        "Nutrition scorecard goal is already in the sustainability set.",
+      );
       return;
     }
     setGoals((current) => [
@@ -432,7 +538,9 @@ function App() {
       },
       ...current,
     ]);
-    announce("Added a child nutrition outcome goal to close the measurement gap.");
+    announce(
+      "Added a child nutrition outcome goal to close the measurement gap.",
+    );
   }
 
   return (
@@ -450,17 +558,27 @@ function App() {
             editMode={editMode}
             setEditMode={(value) => {
               setEditMode(value);
-              announce(value ? "Edit mode enabled." : "Presentation mode enabled.");
+              announce(
+                value ? "Edit mode enabled." : "Presentation mode enabled.",
+              );
             }}
             context={context}
             setContext={setContext}
             onExport={exportPdf}
-            onReanalyze={() => reanalyze(page === "iag" ? "the IAG conclusion" : "the current module")}
+            onReanalyze={() =>
+              reanalyze(
+                page === "iag" ? "the IAG conclusion" : "the current module",
+              )
+            }
             isAnalyzing={analysisState.status === "loading"}
             analysisState={analysisState}
             uploadedEvidence={uploadedEvidence}
             onUploadEvidence={uploadEvidence}
-            onRemoveEvidence={(id) => setUploadedEvidence((current) => current.filter((item) => item.id !== id))}
+            onRemoveEvidence={(id) =>
+              setUploadedEvidence((current) =>
+                current.filter((item) => item.id !== id),
+              )
+            }
             onSummarize={() => {
               setPage("iag");
               setActiveGap("summary");
@@ -513,7 +631,9 @@ function App() {
                     onSave={() => saveWorkspace("5C edits saved.")}
                     onGenerateJob={() => {
                       setJobToBeDone(strategicShiftDrafts.job);
-                      announce("Job to be Done generated from selected 5C signals.");
+                      announce(
+                        "Job to be Done generated from selected 5C signals.",
+                      );
                     }}
                     onReanalyze={reanalyze}
                   />
@@ -524,8 +644,12 @@ function App() {
                     goals={goals}
                     updateGoal={updateGoal}
                     removeGoal={(id) => {
-                      setGoals((current) => current.filter((goal) => goal.id !== id));
-                      announce("Sustainability goal removed from the active analysis set.");
+                      setGoals((current) =>
+                        current.filter((goal) => goal.id !== id),
+                      );
+                      announce(
+                        "Sustainability goal removed from the active analysis set.",
+                      );
                     }}
                     onGenerateGoals={addNutritionGoal}
                     onSave={() => saveWorkspace("Sustainability edits saved.")}
@@ -536,7 +660,9 @@ function App() {
                     editMode={editMode}
                     recommendation={rec}
                     setRecommendation={setRec}
-                    onSave={() => saveWorkspace("Next-step recommendation saved.")}
+                    onSave={() =>
+                      saveWorkspace("Next-step recommendation saved.")
+                    }
                   />
                 )}
               </div>
@@ -627,7 +753,10 @@ function Sidebar({
                 <FileText className="size-4" />
                 Page
               </Label>
-              <Select value={page} onValueChange={(value) => setPage(value as PageKey)}>
+              <Select
+                value={page}
+                onValueChange={(value) => setPage(value as PageKey)}
+              >
                 <SelectTrigger aria-label="Selected page">
                   <SelectValue />
                 </SelectTrigger>
@@ -648,32 +777,51 @@ function Sidebar({
                 <Pencil className="size-4 text-accent" />
                 <Label htmlFor="edit-mode">Edit mode</Label>
               </div>
-              <Switch id="edit-mode" checked={editMode} onCheckedChange={setEditMode} />
+              <Switch
+                id="edit-mode"
+                checked={editMode}
+                onCheckedChange={setEditMode}
+              />
             </div>
           </>
         )}
 
         {isHome && (
           <div className="rounded-md border border-border bg-card px-3 py-3 text-sm leading-6 text-muted-foreground">
-            Gaia turns brand evidence into a 5C diagnosis, an intention-action gap, and a recommended next step.
+            This platform can help you take the first step towards
+            commercializing sustainability by finding the biggest gaps between
+            stated sustainability goals, go to market strategy and brand
+            positioning.
           </div>
         )}
 
         <div className="flex flex-col gap-2">
           {(page === "iag" || page === "fiveC") && (
-            <Button className="w-full justify-start" variant="outline" onClick={onExport}>
+            <Button
+              className="w-full justify-start"
+              variant="outline"
+              onClick={onExport}
+            >
               <Download />
               Export Summary PDF
             </Button>
           )}
           {page === "fiveC" && (
-            <Button className="w-full justify-start" variant="accent" onClick={onSummarize}>
+            <Button
+              className="w-full justify-start"
+              variant="accent"
+              onClick={onSummarize}
+            >
               <Sparkles />
               Summarize to IAG
             </Button>
           )}
           {page === "sustainability" && (
-            <Button className="w-full justify-start" variant="accent" onClick={onGenerateGoals}>
+            <Button
+              className="w-full justify-start"
+              variant="accent"
+              onClick={onGenerateGoals}
+            >
               <Plus />
               Generate new goals
             </Button>
@@ -709,7 +857,11 @@ function Sidebar({
                   event.target.value = "";
                 }}
               />
-              <Button asChild className="w-full justify-start" variant="outline">
+              <Button
+                asChild
+                className="w-full justify-start"
+                variant="outline"
+              >
                 <label htmlFor="evidence-upload">
                   <Upload />
                   Upload evidence
@@ -718,7 +870,10 @@ function Sidebar({
               {uploadedEvidence.length > 0 && (
                 <div className="space-y-1">
                   {uploadedEvidence.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1 text-xs">
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1 text-xs"
+                    >
                       <span className="truncate">{item.source}</span>
                       <Button
                         aria-label={`Remove ${item.source}`}
@@ -734,9 +889,18 @@ function Sidebar({
                 </div>
               )}
             </div>
-            <Button className="w-full justify-start" variant="secondary" onClick={onReanalyze} disabled={isAnalyzing}>
+            <Button
+              className="w-full justify-start"
+              variant="secondary"
+              onClick={onReanalyze}
+              disabled={isAnalyzing}
+            >
               <RefreshCw className={cn(isAnalyzing && "animate-spin")} />
-              {isAnalyzing ? "Analyzing..." : page === "sustainability" ? "Analyze goals" : "Run backend analysis"}
+              {isAnalyzing
+                ? "Analyzing..."
+                : page === "sustainability"
+                  ? "Analyze goals"
+                  : "Run backend analysis"}
             </Button>
             {analysisState.status === "error" && (
               <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive">
@@ -744,11 +908,12 @@ function Sidebar({
               </p>
             )}
             {analysisState.status === "ready" && (
-              <p className="text-xs leading-5 text-muted-foreground">Live backend analysis applied.</p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Live backend analysis applied.
+              </p>
             )}
           </div>
         )}
-
       </nav>
     </aside>
   );
@@ -765,7 +930,8 @@ function Header({
   averageConfidence: number;
   flagshipCount: number;
 }) {
-  const currentPage = pageOptions.find((option) => option.key === page)?.label ?? "Home";
+  const currentPage =
+    pageOptions.find((option) => option.key === page)?.label ?? "Home";
   return (
     <header className="mb-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -775,11 +941,19 @@ function Header({
             <span>{currentPage}</span>
           </div>
           <h2 className="mt-3 font-serif text-4xl font-semibold md:text-5xl">
-            {page === "home" ? "How Gaia Works" : page === "iag" ? "5C Intention Action Gaps" : currentPage}
+            {page === "home"
+              ? "How Gaia Works"
+              : page === "iag"
+                ? "5C Intention Action Gaps"
+                : currentPage}
           </h2>
         </div>
         <div className="grid grid-cols-3 gap-2 lg:w-[520px]">
-          <Metric icon={Gauge} label="Confidence" value={`${averageConfidence}%`} />
+          <Metric
+            icon={Gauge}
+            label="Confidence"
+            value={`${averageConfidence}%`}
+          />
           <Metric icon={Leaf} label="Goals" value={String(flagshipCount)} />
           <Metric icon={ShieldCheck} label="QA" value="Ready" />
         </div>
@@ -788,7 +962,15 @@ function Header({
   );
 }
 
-function Metric({ icon: Icon, label, value }: { icon: typeof Gauge; label: string; value: string }) {
+function Metric({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Gauge;
+  label: string;
+  value: string;
+}) {
   return (
     <div className="rounded-md border border-border bg-card px-3 py-3">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -837,28 +1019,32 @@ const homeModules: Array<{
   {
     page: "fiveC",
     title: "5C Workspace",
-    description: "Inspect and refine the source analysis behind the recommendation.",
+    description:
+      "Inspect and refine the source analysis behind the recommendation.",
     action: "Open 5C",
     icon: Layers3,
   },
   {
     page: "iag",
     title: "IAG Summary",
-    description: "See the synthesized gap, confidence score, evidence, and action plan.",
+    description:
+      "See the synthesized gap, confidence score, evidence, and action plan.",
     action: "View IAG",
     icon: LineChart,
   },
   {
     page: "sustainability",
     title: "Sustainability Goals",
-    description: "Translate the strategic gap into measurable impact commitments.",
+    description:
+      "Translate the strategic gap into measurable impact commitments.",
     action: "Review Goals",
     icon: Leaf,
   },
   {
     page: "next",
     title: "Next Steps",
-    description: "Package the strongest route for the client-facing recommendation.",
+    description:
+      "Package the strongest route for the client-facing recommendation.",
     action: "See Next Steps",
     icon: Target,
   },
@@ -871,12 +1057,15 @@ function HomeView({ setPage }: { setPage: (page: PageKey) => void }) {
         <div>
           <Badge variant="outline">Gaia workflow</Badge>
           <h2 className="mt-4 max-w-4xl font-serif text-4xl font-semibold leading-[1.08] md:text-5xl">
-            From raw evidence to a defensible Intention Action Gap.
+            Close the Gap Between Brand, Sustainability & Business Performance
           </h2>
           <p className="mt-5 max-w-3xl text-base leading-8 text-muted-foreground">
-            Gaia is a guided strategy workspace for turning brand context, 5C research, and sustainability ambition
-            into an executive-ready diagnosis. Work through the modules in order, edit assumptions where needed, run
-            backend analysis when new evidence arrives, then export the summary when the logic is ready.
+            Gaia is a guided strategy workspace for turning brand context, 5C
+            research, and sustainability ambition into an executive-ready
+            intention-action gap analysis and set of recommendations. Work
+            through the modules in order, edit assumptions where needed, run
+            backend analysis when new evidence arrives, then export the summary
+            when the logic is ready.
           </p>
         </div>
 
@@ -884,15 +1073,24 @@ function HomeView({ setPage }: { setPage: (page: PageKey) => void }) {
           <CardHeader>
             <CardTitle>Start a diagnostic</CardTitle>
             <CardDescription>
-              Begin with source analysis, then synthesize the strongest gap and recommended action.
+              Begin with source analysis, then synthesize the strongest gap and
+              recommended action.
             </CardDescription>
           </CardHeader>
           <CardFooter className="mt-auto flex-col items-stretch">
-            <Button className="w-full justify-start" variant="accent" onClick={() => setPage("fiveC")}>
+            <Button
+              className="w-full justify-start"
+              variant="accent"
+              onClick={() => setPage("fiveC")}
+            >
               Start with 5C
               <ArrowRight data-icon="inline-end" />
             </Button>
-            <Button className="w-full justify-start" variant="outline" onClick={() => setPage("iag")}>
+            <Button
+              className="w-full justify-start"
+              variant="outline"
+              onClick={() => setPage("iag")}
+            >
               View IAG summary
               <ArrowRight data-icon="inline-end" />
             </Button>
@@ -925,7 +1123,11 @@ function HomeView({ setPage }: { setPage: (page: PageKey) => void }) {
               <CardDescription>{description}</CardDescription>
             </CardHeader>
             <CardContent className="mt-auto">
-              <Button className="w-full justify-start" variant="outline" onClick={() => setPage(page)}>
+              <Button
+                className="w-full justify-start"
+                variant="outline"
+                onClick={() => setPage(page)}
+              >
                 {action}
                 <ArrowRight data-icon="inline-end" />
               </Button>
@@ -955,7 +1157,10 @@ function IagView({
   const gap = gaps[activeGap];
 
   return (
-    <Tabs value={activeGap} onValueChange={(value) => setActiveGap(value as FiveCTab)}>
+    <Tabs
+      value={activeGap}
+      onValueChange={(value) => setActiveGap(value as FiveCTab)}
+    >
       <ResponsiveTabsList>
         {fiveCTabs.map(({ key, label, icon: Icon }) => (
           <TabsTrigger key={key} value={key} className="gap-2">
@@ -968,7 +1173,11 @@ function IagView({
       {fiveCTabs.map(({ key }) => (
         <TabsContent key={key} value={key}>
           {editMode ? (
-            <IagEditor gap={gaps[key]} updateGap={(patch) => updateGap(key, patch)} onSave={onSave} />
+            <IagEditor
+              gap={gaps[key]}
+              updateGap={(patch) => updateGap(key, patch)}
+              onSave={onSave}
+            />
           ) : (
             <IagPresentation gap={gaps[key]} />
           )}
@@ -992,7 +1201,9 @@ function IagPresentation({ gap }: { gap: GapInsight }) {
       </div>
       <section className="grid gap-5 xl:grid-cols-[1.4fr_0.9fr]">
         <div className="rounded-md border border-border bg-panel p-5">
-          <p className="text-base leading-8 text-foreground">{gap.explanation}</p>
+          <p className="text-base leading-8 text-foreground">
+            {gap.explanation}
+          </p>
         </div>
         <div className="rounded-md border border-border bg-panel p-5">
           <h3 className="flex items-center gap-2 text-base font-semibold">
@@ -1030,7 +1241,10 @@ function IagEditor({
     <div className="space-y-5 rounded-md border border-border bg-panel p-5">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Field label="Gap type">
-          <Select value={gap.type.toLowerCase()} onValueChange={(value) => updateGap({ type: titleCase(value) })}>
+          <Select
+            value={gap.type.toLowerCase()}
+            onValueChange={(value) => updateGap({ type: titleCase(value) })}
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -1042,7 +1256,12 @@ function IagEditor({
           </Select>
         </Field>
         <Field label="Importance">
-          <Select value={gap.importance.toLowerCase()} onValueChange={(value) => updateGap({ importance: titleCase(value) })}>
+          <Select
+            value={gap.importance.toLowerCase()}
+            onValueChange={(value) =>
+              updateGap({ importance: titleCase(value) })
+            }
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -1062,7 +1281,9 @@ function IagEditor({
               step={1}
               onValueChange={([confidence]) => updateGap({ confidence })}
             />
-            <span className="w-10 text-sm font-semibold">{gap.confidence}%</span>
+            <span className="w-10 text-sm font-semibold">
+              {gap.confidence}%
+            </span>
           </div>
         </Field>
         <div className="flex items-end">
@@ -1083,24 +1304,47 @@ function IagEditor({
       <Field label="One action per line">
         <Textarea
           value={gap.nextSteps.join("\n")}
-          onChange={(event) => updateGap({ nextSteps: event.target.value.split("\n").filter(Boolean) })}
+          onChange={(event) =>
+            updateGap({
+              nextSteps: event.target.value.split("\n").filter(Boolean),
+            })
+          }
           className="min-h-[150px]"
         />
       </Field>
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold">Key Arguments & Supporting Evidence</h3>
+        <h3 className="text-lg font-semibold">
+          Key Arguments & Supporting Evidence
+        </h3>
         {gap.evidence.map((item, index) => (
-          <div key={item.title} className="grid gap-3 rounded-md border border-border bg-card p-4 md:grid-cols-2">
+          <div
+            key={item.title}
+            className="grid gap-3 rounded-md border border-border bg-card p-4 md:grid-cols-2"
+          >
             <Field label="Title">
               <Input
                 value={item.title}
-                onChange={(event) => updateEvidence(gap, index, { title: event.target.value }, updateGap)}
+                onChange={(event) =>
+                  updateEvidence(
+                    gap,
+                    index,
+                    { title: event.target.value },
+                    updateGap,
+                  )
+                }
               />
             </Field>
             <Field label="Summary">
               <Textarea
                 value={item.summary}
-                onChange={(event) => updateEvidence(gap, index, { summary: event.target.value }, updateGap)}
+                onChange={(event) =>
+                  updateEvidence(
+                    gap,
+                    index,
+                    { summary: event.target.value },
+                    updateGap,
+                  )
+                }
                 className="min-h-[92px]"
               />
             </Field>
@@ -1125,18 +1369,33 @@ function updateEvidence(
 
 function EvidenceAccordion({ evidence }: { evidence: EvidenceBlock[] }) {
   return (
-    <Accordion type="single" collapsible className="rounded-md border border-border bg-panel px-4">
+    <Accordion
+      type="single"
+      collapsible
+      className="rounded-md border border-border bg-panel px-4"
+    >
       <AccordionItem value="evidence" className="border-0">
         <AccordionTrigger>Key Arguments & Supporting Evidence</AccordionTrigger>
         <AccordionContent>
           <div className="grid gap-4 lg:grid-cols-3">
             {evidence.map((item) => (
-              <article key={item.title} className="rounded-md border border-border bg-card p-4">
+              <article
+                key={item.title}
+                className="rounded-md border border-border bg-card p-4"
+              >
                 <h4 className="text-base font-semibold">{item.title}</h4>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.summary}</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {item.summary}
+                </p>
                 <EvidenceList title="Key Facts" items={item.facts} />
-                <EvidenceList title="Supporting Evidence" items={item.sources} />
-                <EvidenceList title="Quantitative Signals" items={item.signals} />
+                <EvidenceList
+                  title="Supporting Evidence"
+                  items={item.sources}
+                />
+                <EvidenceList
+                  title="Quantitative Signals"
+                  items={item.signals}
+                />
                 <EvidenceList title="Implications" items={item.implications} />
               </article>
             ))}
@@ -1150,7 +1409,9 @@ function EvidenceAccordion({ evidence }: { evidence: EvidenceBlock[] }) {
 function EvidenceList({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="mt-4">
-      <p className="text-xs font-semibold uppercase text-muted-foreground">{title}</p>
+      <p className="text-xs font-semibold uppercase text-muted-foreground">
+        {title}
+      </p>
       <ul className="mt-2 space-y-2 text-sm leading-5 text-muted-foreground">
         {items.map((item) => (
           <li key={item} className="flex gap-2">
@@ -1197,7 +1458,9 @@ function FiveCView({
   competitors: CompetitorDrafts;
   setCompetitors: React.Dispatch<React.SetStateAction<CompetitorDrafts>>;
   culturalDrivers: CulturalDriverDrafts;
-  setCulturalDrivers: React.Dispatch<React.SetStateAction<CulturalDriverDrafts>>;
+  setCulturalDrivers: React.Dispatch<
+    React.SetStateAction<CulturalDriverDrafts>
+  >;
   consumerStages: ConsumerStageDrafts;
   setConsumerStages: React.Dispatch<React.SetStateAction<ConsumerStageDrafts>>;
   needStates: NeedStateDrafts;
@@ -1207,12 +1470,17 @@ function FiveCView({
   onReanalyze: (label: string) => void;
 }) {
   return (
-    <Tabs value={activeFiveC} onValueChange={(value) => setActiveFiveC(value as FiveCTab)}>
+    <Tabs
+      value={activeFiveC}
+      onValueChange={(value) => setActiveFiveC(value as FiveCTab)}
+    >
       <ResponsiveTabsList>
         {fiveCTabs.map(({ key, label, icon: Icon }) => (
           <TabsTrigger key={key} value={key} className="gap-2">
             <Icon className="size-4" />
-            {key === "summary" ? label : `${label} ${isSelectedFiveC(key) ? "*" : ""}`}
+            {key === "summary"
+              ? label
+              : `${label} ${isSelectedFiveC(key) ? "*" : ""}`}
           </TabsTrigger>
         ))}
       </ResponsiveTabsList>
@@ -1231,7 +1499,12 @@ function FiveCView({
         />
       </TabsContent>
       <TabsContent value="company">
-        <CompanyPanel editMode={editMode} profile={profile} setProfile={setProfile} onSave={onSave} />
+        <CompanyPanel
+          editMode={editMode}
+          profile={profile}
+          setProfile={setProfile}
+          onSave={onSave}
+        />
       </TabsContent>
       <TabsContent value="competition">
         <CompetitionPanel
@@ -1297,9 +1570,17 @@ function FiveCSummary({
   if (editMode) {
     return (
       <div className="space-y-5 rounded-md border border-border bg-panel p-5">
-        <CompanyEditor profile={profile} setProfile={setProfile} onSave={onSave} />
+        <CompanyEditor
+          profile={profile}
+          setProfile={setProfile}
+          onSave={onSave}
+        />
         <Separator />
-        <ShiftEditor shifts={strategicShifts} setShifts={setStrategicShifts} onSave={onSave} />
+        <ShiftEditor
+          shifts={strategicShifts}
+          setShifts={setStrategicShifts}
+          onSave={onSave}
+        />
         <Separator />
         <Field label="Job to be Done">
           <Textarea
@@ -1327,8 +1608,12 @@ function FiveCSummary({
     <div className="space-y-5">
       <div className="grid gap-4 xl:grid-cols-2">
         <SummaryBlock title="Company">
-          <p><strong>Belief:</strong> {profile.belief}</p>
-          <p><strong>Purpose:</strong> {profile.purpose}</p>
+          <p>
+            <strong>Belief:</strong> {profile.belief}
+          </p>
+          <p>
+            <strong>Purpose:</strong> {profile.purpose}
+          </p>
         </SummaryBlock>
         <SummaryBlock title="Competition">
           <p className="uppercase text-muted-foreground">From</p>
@@ -1387,22 +1672,39 @@ function CompanyPanel({
 }) {
   return editMode ? (
     <div className="rounded-md border border-border bg-panel p-5">
-      <CompanyEditor profile={profile} setProfile={setProfile} onSave={onSave} />
+      <CompanyEditor
+        profile={profile}
+        setProfile={setProfile}
+        onSave={onSave}
+      />
     </div>
   ) : (
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
       <div className="rounded-md border border-border bg-panel p-5">
-        <p className="text-sm font-semibold uppercase text-muted-foreground">Belief</p>
+        <p className="text-sm font-semibold uppercase text-muted-foreground">
+          Belief
+        </p>
         <p className="mt-2 text-lg leading-8">{profile.belief}</p>
       </div>
       <div className="rounded-md border border-border bg-panel p-5">
-        <p className="text-sm font-semibold uppercase text-muted-foreground">Purpose</p>
-        <h3 className="mt-2 font-serif text-2xl leading-9">{profile.purpose}</h3>
+        <p className="text-sm font-semibold uppercase text-muted-foreground">
+          Purpose
+        </p>
+        <h3 className="mt-2 font-serif text-2xl leading-9">
+          {profile.purpose}
+        </h3>
       </div>
       {Object.entries(profile.pursuits).map(([key, value]) => (
-        <article key={key} className="rounded-md border border-border bg-card p-5">
-          <p className="text-sm font-semibold uppercase text-muted-foreground">{key}</p>
-          <p className="mt-2 text-sm leading-7 text-muted-foreground">{value}</p>
+        <article
+          key={key}
+          className="rounded-md border border-border bg-card p-5"
+        >
+          <p className="text-sm font-semibold uppercase text-muted-foreground">
+            {key}
+          </p>
+          <p className="mt-2 text-sm leading-7 text-muted-foreground">
+            {value}
+          </p>
         </article>
       ))}
     </div>
@@ -1423,13 +1725,17 @@ function CompanyEditor({
       <Field label="Belief">
         <Textarea
           value={profile.belief}
-          onChange={(event) => setProfile({ ...profile, belief: event.target.value })}
+          onChange={(event) =>
+            setProfile({ ...profile, belief: event.target.value })
+          }
         />
       </Field>
       <Field label="Purpose">
         <Textarea
           value={profile.purpose}
-          onChange={(event) => setProfile({ ...profile, purpose: event.target.value })}
+          onChange={(event) =>
+            setProfile({ ...profile, purpose: event.target.value })
+          }
         />
       </Field>
       {Object.entries(profile.pursuits).map(([key, value]) => (
@@ -1462,7 +1768,10 @@ function ShiftEditor({
   setShifts: React.Dispatch<React.SetStateAction<StrategicShiftDraft>>;
   onSave: () => void;
 }) {
-  const updateShift = <Section extends StrategicShiftSection, Key extends keyof StrategicShiftDraft[Section]>(
+  const updateShift = <
+    Section extends StrategicShiftSection,
+    Key extends keyof StrategicShiftDraft[Section],
+  >(
     section: Section,
     key: Key,
     value: StrategicShiftDraft[Section][Key],
@@ -1481,21 +1790,29 @@ function ShiftEditor({
       <Field label="Opportunity Rationale">
         <Textarea
           value={shifts.competition.from}
-          onChange={(event) => updateShift("competition", "from", event.target.value)}
+          onChange={(event) =>
+            updateShift("competition", "from", event.target.value)
+          }
         />
       </Field>
       <Field label="Unmet Needs">
         <Textarea
           value={shifts.competition.to.join("\n")}
           onChange={(event) =>
-            updateShift("competition", "to", event.target.value.split("\n").filter(Boolean))
+            updateShift(
+              "competition",
+              "to",
+              event.target.value.split("\n").filter(Boolean),
+            )
           }
         />
       </Field>
       <Field label="Cultural Tension">
         <Textarea
           value={shifts.culture.from}
-          onChange={(event) => updateShift("culture", "from", event.target.value)}
+          onChange={(event) =>
+            updateShift("culture", "from", event.target.value)
+          }
         />
       </Field>
       <Field label="Emerging Paradigm">
@@ -1507,25 +1824,33 @@ function ShiftEditor({
       <Field label="Core Problem">
         <Textarea
           value={shifts.consumer.from}
-          onChange={(event) => updateShift("consumer", "from", event.target.value)}
+          onChange={(event) =>
+            updateShift("consumer", "from", event.target.value)
+          }
         />
       </Field>
       <Field label="Cultural Reason">
         <Textarea
           value={shifts.consumer.to}
-          onChange={(event) => updateShift("consumer", "to", event.target.value)}
+          onChange={(event) =>
+            updateShift("consumer", "to", event.target.value)
+          }
         />
       </Field>
       <Field label="Primary Gap">
         <Textarea
           value={shifts.category.from}
-          onChange={(event) => updateShift("category", "from", event.target.value)}
+          onChange={(event) =>
+            updateShift("category", "from", event.target.value)
+          }
         />
       </Field>
       <Field label="Recommended Fix">
         <Textarea
           value={shifts.category.to}
-          onChange={(event) => updateShift("category", "to", event.target.value)}
+          onChange={(event) =>
+            updateShift("category", "to", event.target.value)
+          }
         />
       </Field>
       <div className="xl:col-span-2">
@@ -1551,10 +1876,21 @@ function CompetitionPanel({
   onSave: () => void;
   onReanalyze: () => void;
 }) {
-  const [selectedCompetitor, setSelectedCompetitor] = useState(competitors[0].name);
-  const competitor = competitors.find((item) => item.name === selectedCompetitor) || competitors[0];
-  const updateCompetitor = (name: string, patch: Partial<CompetitorDrafts[number]>) => {
-    setCompetitors((current) => current.map((item) => (item.name === name ? { ...item, ...patch } : item)));
+  const [selectedCompetitor, setSelectedCompetitor] = useState(
+    competitors[0].name,
+  );
+  const competitor =
+    competitors.find((item) => item.name === selectedCompetitor) ||
+    competitors[0];
+  const updateCompetitor = (
+    name: string,
+    patch: Partial<CompetitorDrafts[number]>,
+  ) => {
+    setCompetitors((current) =>
+      current.map((item) =>
+        item.name === name ? { ...item, ...patch } : item,
+      ),
+    );
   };
 
   return (
@@ -1563,7 +1899,9 @@ function CompetitionPanel({
         <ResponsiveTabsList>
           {competitors.map((item) => (
             <TabsTrigger key={item.name} value={item.name} className="gap-2">
-              {item.selected && <Star className="size-4 fill-current text-accent" />}
+              {item.selected && (
+                <Star className="size-4 fill-current text-accent" />
+              )}
               {item.name}
             </TabsTrigger>
           ))}
@@ -1574,25 +1912,39 @@ function CompetitionPanel({
               <SelectionEditor
                 itemLabel={item.name}
                 selected={item.selected}
-                onSelectedChange={(selected) => updateCompetitor(item.name, { selected })}
+                onSelectedChange={(selected) =>
+                  updateCompetitor(item.name, { selected })
+                }
                 onSave={onSave}
               >
                 <Field label="Competitor Position">
                   <Textarea
                     value={item.position}
-                    onChange={(event) => updateCompetitor(item.name, { position: event.target.value })}
+                    onChange={(event) =>
+                      updateCompetitor(item.name, {
+                        position: event.target.value,
+                      })
+                    }
                   />
                 </Field>
                 <Field label="Competitor Purpose">
                   <Textarea
                     value={item.purpose}
-                    onChange={(event) => updateCompetitor(item.name, { purpose: event.target.value })}
+                    onChange={(event) =>
+                      updateCompetitor(item.name, {
+                        purpose: event.target.value,
+                      })
+                    }
                   />
                 </Field>
                 <Field label="Purpose into Profit">
                   <Textarea
                     value={item.profit}
-                    onChange={(event) => updateCompetitor(item.name, { profit: event.target.value })}
+                    onChange={(event) =>
+                      updateCompetitor(item.name, {
+                        profit: event.target.value,
+                      })
+                    }
                   />
                 </Field>
               </SelectionEditor>
@@ -1604,7 +1956,9 @@ function CompetitionPanel({
       </Tabs>
       <SummarizePanel
         title="Summarize"
-        items={competitors.filter((item) => item.selected).map((item) => item.name)}
+        items={competitors
+          .filter((item) => item.selected)
+          .map((item) => item.name)}
         onReanalyze={onReanalyze}
       />
       <div className="sr-only">{competitor.name}</div>
@@ -1612,12 +1966,22 @@ function CompetitionPanel({
   );
 }
 
-function CompetitorCard({ competitor }: { competitor: (typeof competitors)[number] }) {
+function CompetitorCard({
+  competitor,
+}: {
+  competitor: (typeof competitors)[number];
+}) {
   return (
     <div className="grid gap-4 lg:grid-cols-3">
-      <SummaryBlock title="Competitor Position">{competitor.position}</SummaryBlock>
-      <SummaryBlock title="Competitor Purpose">{competitor.purpose}</SummaryBlock>
-      <SummaryBlock title="Purpose into Profit">{competitor.profit}</SummaryBlock>
+      <SummaryBlock title="Competitor Position">
+        {competitor.position}
+      </SummaryBlock>
+      <SummaryBlock title="Competitor Purpose">
+        {competitor.purpose}
+      </SummaryBlock>
+      <SummaryBlock title="Purpose into Profit">
+        {competitor.profit}
+      </SummaryBlock>
     </div>
   );
 }
@@ -1631,14 +1995,24 @@ function CulturePanel({
 }: {
   editMode: boolean;
   culturalDrivers: CulturalDriverDrafts;
-  setCulturalDrivers: React.Dispatch<React.SetStateAction<CulturalDriverDrafts>>;
+  setCulturalDrivers: React.Dispatch<
+    React.SetStateAction<CulturalDriverDrafts>
+  >;
   onSave: () => void;
   onReanalyze: () => void;
 }) {
   const [driver, setDriver] = useState(culturalDrivers[0].title);
-  const active = culturalDrivers.find((item) => item.title === driver) || culturalDrivers[0];
-  const updateDriver = (title: string, patch: Partial<CulturalDriverDrafts[number]>) => {
-    setCulturalDrivers((current) => current.map((item) => (item.title === title ? { ...item, ...patch } : item)));
+  const active =
+    culturalDrivers.find((item) => item.title === driver) || culturalDrivers[0];
+  const updateDriver = (
+    title: string,
+    patch: Partial<CulturalDriverDrafts[number]>,
+  ) => {
+    setCulturalDrivers((current) =>
+      current.map((item) =>
+        item.title === title ? { ...item, ...patch } : item,
+      ),
+    );
   };
 
   return (
@@ -1647,8 +2021,14 @@ function CulturePanel({
       <Tabs value={driver} onValueChange={setDriver}>
         <ResponsiveTabsList>
           {culturalDrivers.map((item) => (
-            <TabsTrigger key={item.title} value={item.title} className="max-w-[280px] gap-2 text-wrap">
-              {item.selected && <Star className="size-4 fill-current text-accent" />}
+            <TabsTrigger
+              key={item.title}
+              value={item.title}
+              className="max-w-[280px] gap-2 text-wrap"
+            >
+              {item.selected && (
+                <Star className="size-4 fill-current text-accent" />
+              )}
               {item.title}
             </TabsTrigger>
           ))}
@@ -1659,53 +2039,82 @@ function CulturePanel({
               <SelectionEditor
                 itemLabel={item.title}
                 selected={item.selected}
-                onSelectedChange={(selected) => updateDriver(item.title, { selected })}
+                onSelectedChange={(selected) =>
+                  updateDriver(item.title, { selected })
+                }
                 onSave={onSave}
               >
                 <Field label="Cultural Observation">
                   <Textarea
                     value={item.observation}
-                    onChange={(event) => updateDriver(item.title, { observation: event.target.value })}
+                    onChange={(event) =>
+                      updateDriver(item.title, {
+                        observation: event.target.value,
+                      })
+                    }
                   />
                 </Field>
                 <Field label="Underlying Tension">
                   <Textarea
                     value={item.tension}
-                    onChange={(event) => updateDriver(item.title, { tension: event.target.value })}
+                    onChange={(event) =>
+                      updateDriver(item.title, { tension: event.target.value })
+                    }
                   />
                 </Field>
                 <Field label="What This Means for People">
                   <Textarea
                     value={item.people}
-                    onChange={(event) => updateDriver(item.title, { people: event.target.value })}
+                    onChange={(event) =>
+                      updateDriver(item.title, { people: event.target.value })
+                    }
                   />
                 </Field>
                 <Field label="Marketing Implication">
                   <Textarea
                     value={item.implication}
-                    onChange={(event) => updateDriver(item.title, { implication: event.target.value })}
+                    onChange={(event) =>
+                      updateDriver(item.title, {
+                        implication: event.target.value,
+                      })
+                    }
                   />
                 </Field>
               </SelectionEditor>
             ) : (
               <div className="grid gap-4 xl:grid-cols-2">
-                <SummaryBlock title="Cultural Observation">{item.observation}</SummaryBlock>
-                <SummaryBlock title="Underlying Tension">{item.tension}</SummaryBlock>
-                <SummaryBlock title="What This Means for People">{item.people}</SummaryBlock>
-                <SummaryBlock title="Marketing Implication">{item.implication}</SummaryBlock>
+                <SummaryBlock title="Cultural Observation">
+                  {item.observation}
+                </SummaryBlock>
+                <SummaryBlock title="Underlying Tension">
+                  {item.tension}
+                </SummaryBlock>
+                <SummaryBlock title="What This Means for People">
+                  {item.people}
+                </SummaryBlock>
+                <SummaryBlock title="Marketing Implication">
+                  {item.implication}
+                </SummaryBlock>
                 <div className="rounded-md border border-border bg-panel p-5 xl:col-span-2">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-semibold">Confidence</p>
                     <Badge variant="success">{item.confidence}%</Badge>
                   </div>
                   <Progress value={item.confidence} className="mt-3" />
-                  <Accordion type="single" collapsible className="mt-4 rounded-md border border-border px-4">
+                  <Accordion
+                    type="single"
+                    collapsible
+                    className="mt-4 rounded-md border border-border px-4"
+                  >
                     <AccordionItem value="sources" className="border-0">
                       <AccordionTrigger>Sources</AccordionTrigger>
                       <AccordionContent>
                         <ul className="space-y-2">
                           {item.sources.map((source) => (
-                            <li key={source} className="flex gap-2 text-sm text-muted-foreground">
+                            <li
+                              key={source}
+                              className="flex gap-2 text-sm text-muted-foreground"
+                            >
                               <FileText className="mt-0.5 size-4 text-accent" />
                               {source}
                             </li>
@@ -1722,7 +2131,9 @@ function CulturePanel({
       </Tabs>
       <SummarizePanel
         title="Summarize"
-        items={culturalDrivers.filter((item) => item.selected).map((item) => item.title)}
+        items={culturalDrivers
+          .filter((item) => item.selected)
+          .map((item) => item.title)}
         onReanalyze={onReanalyze}
       />
       <div className="sr-only">{active.title}</div>
@@ -1744,25 +2155,42 @@ function ConsumerPanel({
   onReanalyze: () => void;
 }) {
   const [stage, setStage] = useState("Discovery");
-  const updateStage = (stage: string, patch: Partial<ConsumerStageDrafts[number]>) => {
-    setConsumerStages((current) => current.map((item) => (item.stage === stage ? { ...item, ...patch } : item)));
+  const updateStage = (
+    stage: string,
+    patch: Partial<ConsumerStageDrafts[number]>,
+  ) => {
+    setConsumerStages((current) =>
+      current.map((item) =>
+        item.stage === stage ? { ...item, ...patch } : item,
+      ),
+    );
   };
 
   return (
     <div className="space-y-5">
-      <Accordion type="single" collapsible className="rounded-md border border-border bg-panel px-4">
+      <Accordion
+        type="single"
+        collapsible
+        className="rounded-md border border-border bg-panel px-4"
+      >
         <AccordionItem value="personas" className="border-0">
           <AccordionTrigger>Personas</AccordionTrigger>
           <AccordionContent>
             <div className="grid gap-4 md:grid-cols-3">
-              {["Pragmatic Parent", "Label Scrutinizer", "Nostalgic Buyer"].map((persona) => (
-                <article key={persona} className="rounded-md border border-border bg-card p-4">
-                  <h4 className="font-semibold">{persona}</h4>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Motivated by child wellbeing, practical routines, and confidence that the product delivers what it promises.
-                  </p>
-                </article>
-              ))}
+              {["Pragmatic Parent", "Label Scrutinizer", "Nostalgic Buyer"].map(
+                (persona) => (
+                  <article
+                    key={persona}
+                    className="rounded-md border border-border bg-card p-4"
+                  >
+                    <h4 className="font-semibold">{persona}</h4>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Motivated by child wellbeing, practical routines, and
+                      confidence that the product delivers what it promises.
+                    </p>
+                  </article>
+                ),
+              )}
             </div>
           </AccordionContent>
         </AccordionItem>
@@ -1772,7 +2200,9 @@ function ConsumerPanel({
         <ResponsiveTabsList>
           {consumerStages.map((item) => (
             <TabsTrigger key={item.stage} value={item.stage} className="gap-2">
-              {item.selected && <Star className="size-4 fill-current text-accent" />}
+              {item.selected && (
+                <Star className="size-4 fill-current text-accent" />
+              )}
               {item.stage}
             </TabsTrigger>
           ))}
@@ -1783,41 +2213,62 @@ function ConsumerPanel({
               <SelectionEditor
                 itemLabel={item.stage}
                 selected={item.selected}
-                onSelectedChange={(selected) => updateStage(item.stage, { selected })}
+                onSelectedChange={(selected) =>
+                  updateStage(item.stage, { selected })
+                }
                 onSave={onSave}
               >
                 <Field label="Stage definition">
                   <Textarea
                     value={item.definition}
-                    onChange={(event) => updateStage(item.stage, { definition: event.target.value })}
+                    onChange={(event) =>
+                      updateStage(item.stage, {
+                        definition: event.target.value,
+                      })
+                    }
                   />
                 </Field>
                 <Field label="Barrier analysis">
                   <Textarea
                     value={item.barrier}
-                    onChange={(event) => updateStage(item.stage, { barrier: event.target.value })}
+                    onChange={(event) =>
+                      updateStage(item.stage, { barrier: event.target.value })
+                    }
                   />
                 </Field>
                 <Field label="Reviews">
                   <Textarea
                     value={item.reviews.join("\n")}
                     onChange={(event) =>
-                      updateStage(item.stage, { reviews: event.target.value.split("\n").filter(Boolean) })
+                      updateStage(item.stage, {
+                        reviews: event.target.value.split("\n").filter(Boolean),
+                      })
                     }
                   />
                 </Field>
               </SelectionEditor>
             ) : (
               <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
-                <SummaryBlock title={item.stage}>{item.definition}</SummaryBlock>
-                <SummaryBlock title="Barrier Analysis">{item.barrier}</SummaryBlock>
-                <Accordion type="single" collapsible className="rounded-md border border-border bg-panel px-4 xl:col-span-2">
+                <SummaryBlock title={item.stage}>
+                  {item.definition}
+                </SummaryBlock>
+                <SummaryBlock title="Barrier Analysis">
+                  {item.barrier}
+                </SummaryBlock>
+                <Accordion
+                  type="single"
+                  collapsible
+                  className="rounded-md border border-border bg-panel px-4 xl:col-span-2"
+                >
                   <AccordionItem value="reviews" className="border-0">
                     <AccordionTrigger>Reviews</AccordionTrigger>
                     <AccordionContent>
                       <div className="grid gap-3 md:grid-cols-2">
                         {item.reviews.map((review) => (
-                          <blockquote key={review} className="rounded-md border border-border bg-card p-4 text-sm leading-6 text-muted-foreground">
+                          <blockquote
+                            key={review}
+                            className="rounded-md border border-border bg-card p-4 text-sm leading-6 text-muted-foreground"
+                          >
                             "{review}"
                           </blockquote>
                         ))}
@@ -1832,7 +2283,9 @@ function ConsumerPanel({
       </Tabs>
       <SummarizePanel
         title="Summarize"
-        items={consumerStages.filter((item) => item.selected).map((item) => `Stage: ${item.stage}`)}
+        items={consumerStages
+          .filter((item) => item.selected)
+          .map((item) => `Stage: ${item.stage}`)}
         onReanalyze={onReanalyze}
       />
     </div>
@@ -1853,13 +2306,21 @@ function CategoryPanel({
   onReanalyze: () => void;
 }) {
   const [need, setNeed] = useState(needStates[0].name);
-  const activeNeed = needStates.find((item) => item.name === need) || needStates[0];
+  const activeNeed =
+    needStates.find((item) => item.name === need) || needStates[0];
   const chartData = needStates.map((item) => ({
     subject: item.name.replace(" & ", " / "),
     score: item.score,
   }));
-  const updateNeed = (name: string, patch: Partial<NeedStateDrafts[number]>) => {
-    setNeedStates((current) => current.map((item) => (item.name === name ? { ...item, ...patch } : item)));
+  const updateNeed = (
+    name: string,
+    patch: Partial<NeedStateDrafts[number]>,
+  ) => {
+    setNeedStates((current) =>
+      current.map((item) =>
+        item.name === name ? { ...item, ...patch } : item,
+      ),
+    );
   };
 
   return (
@@ -1868,8 +2329,14 @@ function CategoryPanel({
       <Tabs value={need} onValueChange={setNeed}>
         <ResponsiveTabsList>
           {needStates.map((item) => (
-            <TabsTrigger key={item.name} value={item.name} className="max-w-[290px] gap-2 text-wrap">
-              {item.selected && <Star className="size-4 fill-current text-accent" />}
+            <TabsTrigger
+              key={item.name}
+              value={item.name}
+              className="max-w-[290px] gap-2 text-wrap"
+            >
+              {item.selected && (
+                <Star className="size-4 fill-current text-accent" />
+              )}
               {item.name}
             </TabsTrigger>
           ))}
@@ -1880,13 +2347,17 @@ function CategoryPanel({
               <SelectionEditor
                 itemLabel={item.name}
                 selected={item.selected}
-                onSelectedChange={(selected) => updateNeed(item.name, { selected })}
+                onSelectedChange={(selected) =>
+                  updateNeed(item.name, { selected })
+                }
                 onSave={onSave}
               >
                 <Field label="Needstate description">
                   <Textarea
                     value={item.description}
-                    onChange={(event) => updateNeed(item.name, { description: event.target.value })}
+                    onChange={(event) =>
+                      updateNeed(item.name, { description: event.target.value })
+                    }
                   />
                 </Field>
                 <Field label="Priority score">
@@ -1895,7 +2366,11 @@ function CategoryPanel({
                     min={0}
                     max={100}
                     value={item.score}
-                    onChange={(event) => updateNeed(item.name, { score: Number(event.target.value) })}
+                    onChange={(event) =>
+                      updateNeed(item.name, {
+                        score: Number(event.target.value),
+                      })
+                    }
                   />
                 </Field>
               </SelectionEditor>
@@ -1912,7 +2387,11 @@ function CategoryPanel({
             <h3 className="text-xl font-semibold">Analyses</h3>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" aria-label="Fullscreen chart">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Fullscreen chart"
+                >
                   <Maximize2 />
                 </Button>
               </TooltipTrigger>
@@ -1923,25 +2402,44 @@ function CategoryPanel({
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={chartData}>
                 <PolarGrid stroke="hsl(var(--border))" />
-                <PolarAngleAxis dataKey="subject" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
-                <Radar dataKey="score" stroke="#a3e635" fill="#a3e635" fillOpacity={0.28} />
-                <ChartTooltip contentStyle={{ background: "#151712", border: "1px solid #34382e" }} />
+                <PolarAngleAxis
+                  dataKey="subject"
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                />
+                <Radar
+                  dataKey="score"
+                  stroke="#a3e635"
+                  fill="#a3e635"
+                  fillOpacity={0.28}
+                />
+                <ChartTooltip
+                  contentStyle={{
+                    background: "#151712",
+                    border: "1px solid #34382e",
+                  }}
+                />
               </RadarChart>
             </ResponsiveContainer>
           </div>
         </div>
         <div className="rounded-md border border-border bg-panel p-5">
           <h3 className="text-xl font-semibold">Primary category need</h3>
-          <p className="mt-3 text-sm leading-7 text-muted-foreground">{activeNeed.description}</p>
+          <p className="mt-3 text-sm leading-7 text-muted-foreground">
+            {activeNeed.description}
+          </p>
           <div className="mt-5">
             <Progress value={activeNeed.score} />
-            <p className="mt-2 text-sm font-semibold">{activeNeed.score}% relevance</p>
+            <p className="mt-2 text-sm font-semibold">
+              {activeNeed.score}% relevance
+            </p>
           </div>
         </div>
       </section>
       <SummarizePanel
         title="Summarize"
-        items={needStates.filter((item) => item.selected).map((item) => `Needstate: ${item.name}`)}
+        items={needStates
+          .filter((item) => item.selected)
+          .map((item) => `Needstate: ${item.name}`)}
         onReanalyze={onReanalyze}
       />
     </div>
@@ -1976,7 +2474,9 @@ function SustainabilityView({
     return (
       <div className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-2xl font-semibold">Edit Sustainability Analysis</h3>
+          <h3 className="text-2xl font-semibold">
+            Edit Sustainability Analysis
+          </h3>
           <div className="flex flex-wrap gap-2">
             <Button onClick={onSave}>
               <Save />
@@ -1988,17 +2488,28 @@ function SustainabilityView({
             </Button>
           </div>
         </div>
-        <Accordion type="multiple" className="rounded-md border border-border bg-panel px-4">
+        <Accordion
+          type="multiple"
+          className="rounded-md border border-border bg-panel px-4"
+        >
           {goals.map((goal) => (
             <AccordionItem key={goal.id} value={goal.id}>
               <AccordionTrigger>
                 <span className="flex items-center gap-2">
-                  {goal.flagship ? <Star className="size-4 fill-current text-accent" /> : <FileText className="size-4 text-muted-foreground" />}
+                  {goal.flagship ? (
+                    <Star className="size-4 fill-current text-accent" />
+                  ) : (
+                    <FileText className="size-4 text-muted-foreground" />
+                  )}
                   [{titleCase(goal.status)}] {goal.title}
                 </span>
               </AccordionTrigger>
               <AccordionContent>
-                <GoalEditor goal={goal} updateGoal={updateGoal} removeGoal={removeGoal} />
+                <GoalEditor
+                  goal={goal}
+                  updateGoal={updateGoal}
+                  removeGoal={removeGoal}
+                />
               </AccordionContent>
             </AccordionItem>
           ))}
@@ -2013,25 +2524,48 @@ function SustainabilityView({
         <div>
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h3 className="font-serif text-3xl font-semibold">Sustainability: Yoplait</h3>
-              <p className="text-sm text-muted-foreground">Reporting Year: 2026</p>
+              <h3 className="font-serif text-3xl font-semibold">
+                Sustainability: Yoplait
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Reporting Year: 2026
+              </p>
             </div>
-            <Badge variant="success">{goals.filter((goal) => goal.flagship).length} flagship commitments</Badge>
+            <Badge variant="success">
+              {goals.filter((goal) => goal.flagship).length} flagship
+              commitments
+            </Badge>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            {goals.filter((goal) => goal.flagship).map((goal) => (
-              <GoalCard key={goal.id} goal={goal} />
-            ))}
+            {goals
+              .filter((goal) => goal.flagship)
+              .map((goal) => (
+                <GoalCard key={goal.id} goal={goal} />
+              ))}
           </div>
         </div>
         <div className="rounded-md border border-border bg-panel p-5">
           <h3 className="text-xl font-semibold">Goal mix</h3>
           <div className="mt-5 h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={goalMix} layout="vertical" margin={{ left: 20, right: 20 }}>
+              <BarChart
+                data={goalMix}
+                layout="vertical"
+                margin={{ left: 20, right: 20 }}
+              >
                 <XAxis type="number" hide />
-                <YAxis dataKey="category" type="category" width={96} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
-                <ChartTooltip contentStyle={{ background: "#151712", border: "1px solid #34382e" }} />
+                <YAxis
+                  dataKey="category"
+                  type="category"
+                  width={96}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                />
+                <ChartTooltip
+                  contentStyle={{
+                    background: "#151712",
+                    border: "1px solid #34382e",
+                  }}
+                />
                 <Bar dataKey="count" radius={[0, 6, 6, 0]}>
                   {goalMix.map((_, index) => (
                     <Cell key={index} fill={chartColors[index]} />
@@ -2043,14 +2577,20 @@ function SustainabilityView({
         </div>
       </section>
 
-      <Accordion type="single" collapsible className="rounded-md border border-border bg-panel px-4">
+      <Accordion
+        type="single"
+        collapsible
+        className="rounded-md border border-border bg-panel px-4"
+      >
         <AccordionItem value="other" className="border-0">
           <AccordionTrigger>View Other Goals & Commitments</AccordionTrigger>
           <AccordionContent>
             <div className="grid gap-3 md:grid-cols-2">
-              {goals.filter((goal) => !goal.flagship).map((goal) => (
-                <GoalCard key={goal.id} goal={goal} />
-              ))}
+              {goals
+                .filter((goal) => !goal.flagship)
+                .map((goal) => (
+                  <GoalCard key={goal.id} goal={goal} />
+                ))}
             </div>
           </AccordionContent>
         </AccordionItem>
@@ -2064,17 +2604,35 @@ function GoalCard({ goal }: { goal: SustainabilityGoal }) {
     <article className="rounded-md border border-border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <h4 className="font-semibold leading-6">
-          {goal.flagship && <Star className="mr-2 inline size-4 fill-current text-accent" />}
+          {goal.flagship && (
+            <Star className="mr-2 inline size-4 fill-current text-accent" />
+          )}
           {goal.title}
         </h4>
-        <Badge variant={goal.category === "environmental" ? "success" : goal.category === "social" ? "warning" : "secondary"}>
+        <Badge
+          variant={
+            goal.category === "environmental"
+              ? "success"
+              : goal.category === "social"
+                ? "warning"
+                : "secondary"
+          }
+        >
           {titleCase(goal.category)}
         </Badge>
       </div>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">{goal.description}</p>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">
+        {goal.description}
+      </p>
       <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-        <InfoMini label="Status & Type" value={`${titleCase(goal.status)} | ${titleCase(goal.type)}`} />
-        <InfoMini label="Timeline" value={`${goal.startYear} - ${goal.endYear}`} />
+        <InfoMini
+          label="Status & Type"
+          value={`${titleCase(goal.status)} | ${titleCase(goal.type)}`}
+        />
+        <InfoMini
+          label="Timeline"
+          value={`${goal.startYear} - ${goal.endYear}`}
+        />
         <InfoMini label="Sub-category" value={goal.subcategory} />
       </div>
     </article>
@@ -2098,19 +2656,32 @@ function GoalEditor({
           onCheckedChange={(flagship) => updateGoal(goal.id, { flagship })}
           id={`${goal.id}-flagship`}
         />
-        <Label htmlFor={`${goal.id}-flagship`}>Flagship / Priority Commitment</Label>
+        <Label htmlFor={`${goal.id}-flagship`}>
+          Flagship / Priority Commitment
+        </Label>
       </div>
       <Field label="Description">
         <Textarea
           value={goal.description}
-          onChange={(event) => updateGoal(goal.id, { description: event.target.value })}
+          onChange={(event) =>
+            updateGoal(goal.id, { description: event.target.value })
+          }
           className="min-h-[150px]"
         />
       </Field>
       <div className="grid gap-4">
         <Field label="Category">
-          <Select value={goal.category} onValueChange={(value) => updateGoal(goal.id, { category: value as SustainabilityGoal["category"] })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
+          <Select
+            value={goal.category}
+            onValueChange={(value) =>
+              updateGoal(goal.id, {
+                category: value as SustainabilityGoal["category"],
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="environmental">Environmental</SelectItem>
               <SelectItem value="social">Social</SelectItem>
@@ -2119,11 +2690,23 @@ function GoalEditor({
           </Select>
         </Field>
         <Field label="Sub-category">
-          <Input value={goal.subcategory} onChange={(event) => updateGoal(goal.id, { subcategory: event.target.value })} />
+          <Input
+            value={goal.subcategory}
+            onChange={(event) =>
+              updateGoal(goal.id, { subcategory: event.target.value })
+            }
+          />
         </Field>
         <Field label="Type">
-          <Select value={goal.type} onValueChange={(value) => updateGoal(goal.id, { type: value as SustainabilityGoal["type"] })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
+          <Select
+            value={goal.type}
+            onValueChange={(value) =>
+              updateGoal(goal.id, { type: value as SustainabilityGoal["type"] })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="target">Target</SelectItem>
               <SelectItem value="initiative">Initiative</SelectItem>
@@ -2132,8 +2715,17 @@ function GoalEditor({
           </Select>
         </Field>
         <Field label="Status">
-          <Select value={goal.status} onValueChange={(value) => updateGoal(goal.id, { status: value as SustainabilityGoal["status"] })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
+          <Select
+            value={goal.status}
+            onValueChange={(value) =>
+              updateGoal(goal.id, {
+                status: value as SustainabilityGoal["status"],
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="planned">Planned</SelectItem>
               <SelectItem value="active">Active</SelectItem>
@@ -2146,14 +2738,18 @@ function GoalEditor({
         <Input
           type="number"
           value={goal.startYear}
-          onChange={(event) => updateGoal(goal.id, { startYear: Number(event.target.value) })}
+          onChange={(event) =>
+            updateGoal(goal.id, { startYear: Number(event.target.value) })
+          }
         />
       </Field>
       <Field label="End Year">
         <Input
           type="number"
           value={goal.endYear}
-          onChange={(event) => updateGoal(goal.id, { endYear: Number(event.target.value) })}
+          onChange={(event) =>
+            updateGoal(goal.id, { endYear: Number(event.target.value) })
+          }
         />
       </Field>
       <div className="md:col-span-2">
@@ -2185,25 +2781,45 @@ function NextStepsView({
           <Field label="Product">
             <Input
               value={recommendation.title}
-              onChange={(event) => setRecommendation({ ...recommendation, title: event.target.value })}
+              onChange={(event) =>
+                setRecommendation({
+                  ...recommendation,
+                  title: event.target.value,
+                })
+              }
             />
           </Field>
           <Field label="Best for">
             <Textarea
               value={recommendation.bestFor}
-              onChange={(event) => setRecommendation({ ...recommendation, bestFor: event.target.value })}
+              onChange={(event) =>
+                setRecommendation({
+                  ...recommendation,
+                  bestFor: event.target.value,
+                })
+              }
             />
           </Field>
           <Field label="Headline">
             <Input
               value={recommendation.headline}
-              onChange={(event) => setRecommendation({ ...recommendation, headline: event.target.value })}
+              onChange={(event) =>
+                setRecommendation({
+                  ...recommendation,
+                  headline: event.target.value,
+                })
+              }
             />
           </Field>
           <Field label="Strategic Overview">
             <Textarea
               value={recommendation.overview}
-              onChange={(event) => setRecommendation({ ...recommendation, overview: event.target.value })}
+              onChange={(event) =>
+                setRecommendation({
+                  ...recommendation,
+                  overview: event.target.value,
+                })
+              }
               className="min-h-[160px]"
             />
           </Field>
@@ -2230,12 +2846,16 @@ function NextStepsView({
   return (
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
       <section className="rounded-md border border-border bg-panel p-5">
-        <Badge variant="outline">Next recommended product</Badge>
-        <h3 className="mt-4 font-serif text-4xl font-semibold">{recommendation.title}</h3>
+        <h3 className="font-serif text-4xl font-semibold">
+          {recommendation.title}
+        </h3>
         <p className="mt-4 text-sm leading-7 text-muted-foreground">
-          <strong className="text-foreground">Best for:</strong> {recommendation.bestFor}
+          <strong className="text-foreground">Best for:</strong>{" "}
+          {recommendation.bestFor}
         </p>
-        <p className="mt-5 text-xl font-semibold italic">{recommendation.headline}</p>
+        <p className="mt-5 text-xl font-semibold italic">
+          {recommendation.headline}
+        </p>
         <Dialog>
           <DialogTrigger asChild>
             <Button className="mt-6" variant="accent">
@@ -2260,15 +2880,24 @@ function NextStepsView({
 
 const recFromData = recommendation;
 
-function RecommendationDeck({ recommendation }: { recommendation: typeof recFromData }) {
+function RecommendationDeck({
+  recommendation,
+}: {
+  recommendation: typeof recFromData;
+}) {
   return (
     <section className="rounded-md border border-border bg-panel p-5">
       <h4 className="text-xl font-semibold">Strategic Overview</h4>
-      <p className="mt-3 text-sm leading-7 text-muted-foreground">{recommendation.overview}</p>
+      <p className="mt-3 text-sm leading-7 text-muted-foreground">
+        {recommendation.overview}
+      </p>
       <h4 className="mt-6 text-xl font-semibold">Key Outcomes</h4>
       <div className="mt-4 grid gap-3">
         {recommendation.outcomes.map((outcome) => (
-          <div key={outcome} className="rounded-md border border-accent/30 bg-accent/10 p-4 text-sm leading-6">
+          <div
+            key={outcome}
+            className="rounded-md border border-accent/30 bg-accent/10 p-4 text-sm leading-6"
+          >
             {outcome}
           </div>
         ))}
@@ -2297,7 +2926,11 @@ function SelectionEditor({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-xl font-semibold">{itemLabel}</h3>
         <div className="flex items-center gap-3">
-          <Switch id={selectedId} checked={selected} onCheckedChange={onSelectedChange} />
+          <Switch
+            id={selectedId}
+            checked={selected}
+            onCheckedChange={onSelectedChange}
+          />
           <Label htmlFor={selectedId}>Use in summary</Label>
         </div>
       </div>
@@ -2327,7 +2960,10 @@ function SummarizePanel({
       </p>
       <ul className="mt-4 grid gap-2 md:grid-cols-2">
         {items.map((item) => (
-          <li key={item} className="flex gap-2 rounded-md bg-muted px-3 py-2 text-sm">
+          <li
+            key={item}
+            className="flex gap-2 rounded-md bg-muted px-3 py-2 text-sm"
+          >
             <CheckCircle2 className="mt-0.5 size-4 text-accent" />
             {item}
           </li>
@@ -2341,11 +2977,19 @@ function SummarizePanel({
   );
 }
 
-function SummaryBlock({ title, children }: { title: string; children: React.ReactNode }) {
+function SummaryBlock({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <article className="rounded-md border border-border bg-panel p-5">
       <h3 className="text-lg font-semibold">{title}</h3>
-      <div className="mt-3 space-y-3 text-sm leading-7 text-muted-foreground">{children}</div>
+      <div className="mt-3 space-y-3 text-sm leading-7 text-muted-foreground">
+        {children}
+      </div>
     </article>
   );
 }
@@ -2353,7 +2997,9 @@ function SummaryBlock({ title, children }: { title: string; children: React.Reac
 function StatusPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-border bg-card px-4 py-3">
-      <p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p>
+      <p className="text-xs font-semibold uppercase text-muted-foreground">
+        {label}
+      </p>
       <p className="mt-1 text-lg font-semibold">{value}</p>
     </div>
   );
@@ -2362,13 +3008,21 @@ function StatusPill({ label, value }: { label: string; value: string }) {
 function InfoMini({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md bg-muted px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase text-muted-foreground">{label}</p>
+      <p className="text-[10px] font-semibold uppercase text-muted-foreground">
+        {label}
+      </p>
       <p className="mt-1 truncate text-xs text-foreground">{value}</p>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   return (
     <div className="grid gap-2">
