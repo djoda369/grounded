@@ -96,6 +96,8 @@ import {
   type UploadedEvidence,
 } from "@/lib/phase1-api";
 
+const workspaceStorageKey = "gaia-workspace-v1";
+
 const fiveCTabs: Array<{ key: FiveCTab; label: string; icon: typeof Building2 }> = [
   { key: "summary", label: "Executive Summary", icon: Layers3 },
   { key: "company", label: "Company", icon: Building2 },
@@ -114,19 +116,121 @@ function cloneGaps() {
   >;
 }
 
+type RecommendationDraft = typeof recommendation;
+type CompanyProfileDraft = typeof companyProfile;
+type StrategicShiftDraft = typeof strategicShifts;
+type StrategicShiftSection = Exclude<keyof StrategicShiftDraft, "job">;
+type CompetitorDrafts = typeof competitors;
+type CulturalDriverDrafts = typeof culturalDrivers;
+type ConsumerStageDrafts = typeof consumerStages;
+type NeedStateDrafts = typeof needStates;
+
+type PersistedWorkspace = {
+  version: 1;
+  savedAt: string;
+  context: string;
+  uploadedEvidence: UploadedEvidence[];
+  gapDrafts: Record<FiveCTab, GapInsight>;
+  profile: CompanyProfileDraft;
+  jobToBeDone: string;
+  goals: SustainabilityGoal[];
+  recommendation: RecommendationDraft;
+  strategicShifts: StrategicShiftDraft;
+  competitors: CompetitorDrafts;
+  culturalDrivers: CulturalDriverDrafts;
+  consumerStages: ConsumerStageDrafts;
+  needStates: NeedStateDrafts;
+};
+
+function cloneDraft<T>(draft: T): T {
+  return structuredClone(draft);
+}
+
+function loadPersistedWorkspace(): Partial<PersistedWorkspace> | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(workspaceStorageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function restoreGaps(savedGaps?: Partial<Record<FiveCTab, GapInsight>>) {
+  const defaults = cloneGaps();
+  if (!savedGaps) return defaults;
+
+  return Object.fromEntries(
+    fiveCTabs.map(({ key }) => {
+      const saved = savedGaps[key];
+      return [
+        key,
+        {
+          ...defaults[key],
+          ...saved,
+          nextSteps: saved?.nextSteps ?? defaults[key].nextSteps,
+          evidence: saved?.evidence ?? defaults[key].evidence,
+        },
+      ];
+    }),
+  ) as Record<FiveCTab, GapInsight>;
+}
+
+function restoreProfile(savedProfile?: Partial<CompanyProfileDraft>) {
+  return {
+    ...companyProfile,
+    ...savedProfile,
+    pursuits: {
+      ...companyProfile.pursuits,
+      ...savedProfile?.pursuits,
+    },
+  };
+}
+
+function restoreRecommendation(savedRecommendation?: Partial<RecommendationDraft>) {
+  return {
+    ...recommendation,
+    ...savedRecommendation,
+    outcomes: savedRecommendation?.outcomes ?? recommendation.outcomes,
+  };
+}
+
 function App() {
+  const savedWorkspace = useMemo(loadPersistedWorkspace, []);
   const [page, setPage] = useState<PageKey>("home");
   const [editMode, setEditMode] = useState(false);
-  const [context, setContext] = useState("");
+  const [context, setContext] = useState(() => savedWorkspace?.context ?? "");
   const [activeGap, setActiveGap] = useState<FiveCTab>("summary");
   const [activeFiveC, setActiveFiveC] = useState<FiveCTab>("summary");
-  const [gapDrafts, setGapDrafts] = useState<Record<FiveCTab, GapInsight>>(() => cloneGaps());
-  const [profile, setProfile] = useState(companyProfile);
-  const [jobToBeDone, setJobToBeDone] = useState(strategicShifts.job);
-  const [goals, setGoals] = useState<SustainabilityGoal[]>(initialGoals);
-  const [rec, setRec] = useState(recommendation);
+  const [gapDrafts, setGapDrafts] = useState<Record<FiveCTab, GapInsight>>(() =>
+    restoreGaps(savedWorkspace?.gapDrafts),
+  );
+  const [profile, setProfile] = useState<CompanyProfileDraft>(() => restoreProfile(savedWorkspace?.profile));
+  const [jobToBeDone, setJobToBeDone] = useState(() => savedWorkspace?.jobToBeDone ?? strategicShifts.job);
+  const [goals, setGoals] = useState<SustainabilityGoal[]>(() => savedWorkspace?.goals ?? cloneDraft(initialGoals));
+  const [rec, setRec] = useState<RecommendationDraft>(() => restoreRecommendation(savedWorkspace?.recommendation));
+  const [strategicShiftDrafts, setStrategicShiftDrafts] = useState<StrategicShiftDraft>(() =>
+    savedWorkspace?.strategicShifts ?? cloneDraft(strategicShifts),
+  );
+  const [competitorDrafts, setCompetitorDrafts] = useState<CompetitorDrafts>(() =>
+    savedWorkspace?.competitors ?? cloneDraft(competitors),
+  );
+  const [culturalDriverDrafts, setCulturalDriverDrafts] = useState<CulturalDriverDrafts>(() =>
+    savedWorkspace?.culturalDrivers ?? cloneDraft(culturalDrivers),
+  );
+  const [consumerStageDrafts, setConsumerStageDrafts] = useState<ConsumerStageDrafts>(() =>
+    savedWorkspace?.consumerStages ?? cloneDraft(consumerStages),
+  );
+  const [needStateDrafts, setNeedStateDrafts] = useState<NeedStateDrafts>(() =>
+    savedWorkspace?.needStates ?? cloneDraft(needStates),
+  );
   const [analysisState, setAnalysisState] = useState<AnalysisState>({ status: "idle", message: "" });
-  const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence[]>([]);
+  const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence[]>(() =>
+    savedWorkspace?.uploadedEvidence ?? [],
+  );
 
   const flagshipCount = goals.filter((goal) => goal.flagship).length;
   const averageConfidence = Math.round(
@@ -136,6 +240,40 @@ function App() {
 
   function announce(_message: string) {
     return;
+  }
+
+  function saveWorkspace(message = "Workspace saved.") {
+    if (typeof window === "undefined") return;
+
+    const workspace: PersistedWorkspace = {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      context,
+      uploadedEvidence,
+      gapDrafts,
+      profile,
+      jobToBeDone,
+      goals,
+      recommendation: rec,
+      strategicShifts: strategicShiftDrafts,
+      competitors: competitorDrafts,
+      culturalDrivers: culturalDriverDrafts,
+      consumerStages: consumerStageDrafts,
+      needStates: needStateDrafts,
+    };
+
+    try {
+      window.localStorage.setItem(workspaceStorageKey, JSON.stringify(workspace));
+      announce(message);
+    } catch {
+      const workspaceWithoutUploads = { ...workspace, uploadedEvidence: [] };
+      try {
+        window.localStorage.setItem(workspaceStorageKey, JSON.stringify(workspaceWithoutUploads));
+        announce(`${message} Uploaded files were not saved because browser storage is limited.`);
+      } catch {
+        announce("Workspace could not be saved in this browser.");
+      }
+    }
   }
 
   async function exportPdf() {
@@ -309,7 +447,7 @@ function App() {
                     setActiveGap={setActiveGap}
                     gaps={gapDrafts}
                     updateGap={updateGap}
-                    onSave={() => announce("IAG edits saved locally for the demo session.")}
+                    onSave={() => saveWorkspace("IAG edits saved.")}
                   />
                 )}
                 {page === "fiveC" && (
@@ -321,8 +459,19 @@ function App() {
                     setProfile={setProfile}
                     jobToBeDone={jobToBeDone}
                     setJobToBeDone={setJobToBeDone}
+                    strategicShifts={strategicShiftDrafts}
+                    setStrategicShifts={setStrategicShiftDrafts}
+                    competitors={competitorDrafts}
+                    setCompetitors={setCompetitorDrafts}
+                    culturalDrivers={culturalDriverDrafts}
+                    setCulturalDrivers={setCulturalDriverDrafts}
+                    consumerStages={consumerStageDrafts}
+                    setConsumerStages={setConsumerStageDrafts}
+                    needStates={needStateDrafts}
+                    setNeedStates={setNeedStateDrafts}
+                    onSave={() => saveWorkspace("5C edits saved.")}
                     onGenerateJob={() => {
-                      setJobToBeDone(strategicShifts.job);
+                      setJobToBeDone(strategicShiftDrafts.job);
                       announce("Job to be Done generated from selected 5C signals.");
                     }}
                     onReanalyze={reanalyze}
@@ -338,6 +487,7 @@ function App() {
                       announce("Sustainability goal removed from the active analysis set.");
                     }}
                     onGenerateGoals={addNutritionGoal}
+                    onSave={() => saveWorkspace("Sustainability edits saved.")}
                   />
                 )}
                 {page === "next" && (
@@ -345,7 +495,7 @@ function App() {
                     editMode={editMode}
                     recommendation={rec}
                     setRecommendation={setRec}
-                    onSave={() => announce("Next-step recommendation updated.")}
+                    onSave={() => saveWorkspace("Next-step recommendation saved.")}
                   />
                 )}
               </div>
@@ -980,6 +1130,17 @@ function FiveCView({
   setProfile,
   jobToBeDone,
   setJobToBeDone,
+  strategicShifts,
+  setStrategicShifts,
+  competitors,
+  setCompetitors,
+  culturalDrivers,
+  setCulturalDrivers,
+  consumerStages,
+  setConsumerStages,
+  needStates,
+  setNeedStates,
+  onSave,
   onGenerateJob,
   onReanalyze,
 }: {
@@ -990,6 +1151,17 @@ function FiveCView({
   setProfile: (profile: typeof companyProfile) => void;
   jobToBeDone: string;
   setJobToBeDone: (value: string) => void;
+  strategicShifts: StrategicShiftDraft;
+  setStrategicShifts: React.Dispatch<React.SetStateAction<StrategicShiftDraft>>;
+  competitors: CompetitorDrafts;
+  setCompetitors: React.Dispatch<React.SetStateAction<CompetitorDrafts>>;
+  culturalDrivers: CulturalDriverDrafts;
+  setCulturalDrivers: React.Dispatch<React.SetStateAction<CulturalDriverDrafts>>;
+  consumerStages: ConsumerStageDrafts;
+  setConsumerStages: React.Dispatch<React.SetStateAction<ConsumerStageDrafts>>;
+  needStates: NeedStateDrafts;
+  setNeedStates: React.Dispatch<React.SetStateAction<NeedStateDrafts>>;
+  onSave: () => void;
   onGenerateJob: () => void;
   onReanalyze: (label: string) => void;
 }) {
@@ -1011,23 +1183,50 @@ function FiveCView({
           setProfile={setProfile}
           jobToBeDone={jobToBeDone}
           setJobToBeDone={setJobToBeDone}
+          strategicShifts={strategicShifts}
+          setStrategicShifts={setStrategicShifts}
+          onSave={onSave}
           onGenerateJob={onGenerateJob}
         />
       </TabsContent>
       <TabsContent value="company">
-        <CompanyPanel editMode={editMode} profile={profile} setProfile={setProfile} />
+        <CompanyPanel editMode={editMode} profile={profile} setProfile={setProfile} onSave={onSave} />
       </TabsContent>
       <TabsContent value="competition">
-        <CompetitionPanel editMode={editMode} onReanalyze={() => onReanalyze("the competitive opportunity")} />
+        <CompetitionPanel
+          editMode={editMode}
+          competitors={competitors}
+          setCompetitors={setCompetitors}
+          onSave={onSave}
+          onReanalyze={() => onReanalyze("the competitive opportunity")}
+        />
       </TabsContent>
       <TabsContent value="culture">
-        <CulturePanel editMode={editMode} onReanalyze={() => onReanalyze("the cultural opportunity")} />
+        <CulturePanel
+          editMode={editMode}
+          culturalDrivers={culturalDrivers}
+          setCulturalDrivers={setCulturalDrivers}
+          onSave={onSave}
+          onReanalyze={() => onReanalyze("the cultural opportunity")}
+        />
       </TabsContent>
       <TabsContent value="consumer">
-        <ConsumerPanel editMode={editMode} onReanalyze={() => onReanalyze("the consumer opportunity")} />
+        <ConsumerPanel
+          editMode={editMode}
+          consumerStages={consumerStages}
+          setConsumerStages={setConsumerStages}
+          onSave={onSave}
+          onReanalyze={() => onReanalyze("the consumer opportunity")}
+        />
       </TabsContent>
       <TabsContent value="category">
-        <CategoryPanel editMode={editMode} onReanalyze={() => onReanalyze("the category opportunity")} />
+        <CategoryPanel
+          editMode={editMode}
+          needStates={needStates}
+          setNeedStates={setNeedStates}
+          onSave={onSave}
+          onReanalyze={() => onReanalyze("the category opportunity")}
+        />
       </TabsContent>
     </Tabs>
   );
@@ -1039,6 +1238,9 @@ function FiveCSummary({
   setProfile,
   jobToBeDone,
   setJobToBeDone,
+  strategicShifts,
+  setStrategicShifts,
+  onSave,
   onGenerateJob,
 }: {
   editMode: boolean;
@@ -1046,14 +1248,17 @@ function FiveCSummary({
   setProfile: (profile: typeof companyProfile) => void;
   jobToBeDone: string;
   setJobToBeDone: (value: string) => void;
+  strategicShifts: StrategicShiftDraft;
+  setStrategicShifts: React.Dispatch<React.SetStateAction<StrategicShiftDraft>>;
+  onSave: () => void;
   onGenerateJob: () => void;
 }) {
   if (editMode) {
     return (
       <div className="space-y-5 rounded-md border border-border bg-panel p-5">
-        <CompanyEditor profile={profile} setProfile={setProfile} />
+        <CompanyEditor profile={profile} setProfile={setProfile} onSave={onSave} />
         <Separator />
-        <ShiftEditor />
+        <ShiftEditor shifts={strategicShifts} setShifts={setStrategicShifts} onSave={onSave} />
         <Separator />
         <Field label="Job to be Done">
           <Textarea
@@ -1063,10 +1268,16 @@ function FiveCSummary({
             className="min-h-[120px]"
           />
         </Field>
-        <Button onClick={onGenerateJob}>
-          <Sparkles />
-          Generate Job to be Done
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onSave}>
+            <Save />
+            Save
+          </Button>
+          <Button onClick={onGenerateJob}>
+            <Sparkles />
+            Generate Job to be Done
+          </Button>
+        </div>
       </div>
     );
   }
@@ -1126,14 +1337,16 @@ function CompanyPanel({
   editMode,
   profile,
   setProfile,
+  onSave,
 }: {
   editMode: boolean;
   profile: typeof companyProfile;
   setProfile: (profile: typeof companyProfile) => void;
+  onSave: () => void;
 }) {
   return editMode ? (
     <div className="rounded-md border border-border bg-panel p-5">
-      <CompanyEditor profile={profile} setProfile={setProfile} />
+      <CompanyEditor profile={profile} setProfile={setProfile} onSave={onSave} />
     </div>
   ) : (
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
@@ -1158,9 +1371,11 @@ function CompanyPanel({
 function CompanyEditor({
   profile,
   setProfile,
+  onSave,
 }: {
   profile: typeof companyProfile;
   setProfile: (profile: typeof companyProfile) => void;
+  onSave: () => void;
 }) {
   return (
     <div className="grid gap-4">
@@ -1189,7 +1404,7 @@ function CompanyEditor({
           />
         </Field>
       ))}
-      <Button className="w-fit">
+      <Button className="w-fit" onClick={onSave}>
         <Save />
         Save
       </Button>
@@ -1197,40 +1412,110 @@ function CompanyEditor({
   );
 }
 
-function ShiftEditor() {
+function ShiftEditor({
+  shifts,
+  setShifts,
+  onSave,
+}: {
+  shifts: StrategicShiftDraft;
+  setShifts: React.Dispatch<React.SetStateAction<StrategicShiftDraft>>;
+  onSave: () => void;
+}) {
+  const updateShift = <Section extends StrategicShiftSection, Key extends keyof StrategicShiftDraft[Section]>(
+    section: Section,
+    key: Key,
+    value: StrategicShiftDraft[Section][Key],
+  ) => {
+    setShifts((current) => ({
+      ...current,
+      [section]: {
+        ...current[section],
+        [key]: value,
+      },
+    }));
+  };
+
   return (
     <div className="grid gap-4 xl:grid-cols-2">
       <Field label="Opportunity Rationale">
-        <Textarea defaultValue={strategicShifts.competition.from} />
+        <Textarea
+          value={shifts.competition.from}
+          onChange={(event) => updateShift("competition", "from", event.target.value)}
+        />
       </Field>
       <Field label="Unmet Needs">
-        <Textarea defaultValue={strategicShifts.competition.to.join("\n")} />
+        <Textarea
+          value={shifts.competition.to.join("\n")}
+          onChange={(event) =>
+            updateShift("competition", "to", event.target.value.split("\n").filter(Boolean))
+          }
+        />
       </Field>
       <Field label="Cultural Tension">
-        <Textarea defaultValue={strategicShifts.culture.from} />
+        <Textarea
+          value={shifts.culture.from}
+          onChange={(event) => updateShift("culture", "from", event.target.value)}
+        />
       </Field>
       <Field label="Emerging Paradigm">
-        <Textarea defaultValue={strategicShifts.culture.to} />
+        <Textarea
+          value={shifts.culture.to}
+          onChange={(event) => updateShift("culture", "to", event.target.value)}
+        />
       </Field>
       <Field label="Core Problem">
-        <Textarea defaultValue={strategicShifts.consumer.from} />
+        <Textarea
+          value={shifts.consumer.from}
+          onChange={(event) => updateShift("consumer", "from", event.target.value)}
+        />
       </Field>
       <Field label="Cultural Reason">
-        <Textarea defaultValue={strategicShifts.consumer.to} />
+        <Textarea
+          value={shifts.consumer.to}
+          onChange={(event) => updateShift("consumer", "to", event.target.value)}
+        />
       </Field>
       <Field label="Primary Gap">
-        <Textarea defaultValue={strategicShifts.category.from} />
+        <Textarea
+          value={shifts.category.from}
+          onChange={(event) => updateShift("category", "from", event.target.value)}
+        />
       </Field>
       <Field label="Recommended Fix">
-        <Textarea defaultValue={strategicShifts.category.to} />
+        <Textarea
+          value={shifts.category.to}
+          onChange={(event) => updateShift("category", "to", event.target.value)}
+        />
       </Field>
+      <div className="xl:col-span-2">
+        <Button className="w-fit" onClick={onSave}>
+          <Save />
+          Save
+        </Button>
+      </div>
     </div>
   );
 }
 
-function CompetitionPanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyze: () => void }) {
+function CompetitionPanel({
+  editMode,
+  competitors,
+  setCompetitors,
+  onSave,
+  onReanalyze,
+}: {
+  editMode: boolean;
+  competitors: CompetitorDrafts;
+  setCompetitors: React.Dispatch<React.SetStateAction<CompetitorDrafts>>;
+  onSave: () => void;
+  onReanalyze: () => void;
+}) {
   const [selectedCompetitor, setSelectedCompetitor] = useState(competitors[0].name);
   const competitor = competitors.find((item) => item.name === selectedCompetitor) || competitors[0];
+  const updateCompetitor = (name: string, patch: Partial<CompetitorDrafts[number]>) => {
+    setCompetitors((current) => current.map((item) => (item.name === name ? { ...item, ...patch } : item)));
+  };
+
   return (
     <div className="space-y-5">
       <Tabs value={selectedCompetitor} onValueChange={setSelectedCompetitor}>
@@ -1245,10 +1530,30 @@ function CompetitionPanel({ editMode, onReanalyze }: { editMode: boolean; onRean
         {competitors.map((item) => (
           <TabsContent key={item.name} value={item.name}>
             {editMode ? (
-              <SelectionEditor itemLabel={item.name} selected={item.selected}>
-                <Field label="Competitor Position"><Textarea defaultValue={item.position} /></Field>
-                <Field label="Competitor Purpose"><Textarea defaultValue={item.purpose} /></Field>
-                <Field label="Purpose into Profit"><Textarea defaultValue={item.profit} /></Field>
+              <SelectionEditor
+                itemLabel={item.name}
+                selected={item.selected}
+                onSelectedChange={(selected) => updateCompetitor(item.name, { selected })}
+                onSave={onSave}
+              >
+                <Field label="Competitor Position">
+                  <Textarea
+                    value={item.position}
+                    onChange={(event) => updateCompetitor(item.name, { position: event.target.value })}
+                  />
+                </Field>
+                <Field label="Competitor Purpose">
+                  <Textarea
+                    value={item.purpose}
+                    onChange={(event) => updateCompetitor(item.name, { purpose: event.target.value })}
+                  />
+                </Field>
+                <Field label="Purpose into Profit">
+                  <Textarea
+                    value={item.profit}
+                    onChange={(event) => updateCompetitor(item.name, { profit: event.target.value })}
+                  />
+                </Field>
               </SelectionEditor>
             ) : (
               <CompetitorCard competitor={item} />
@@ -1276,9 +1581,25 @@ function CompetitorCard({ competitor }: { competitor: (typeof competitors)[numbe
   );
 }
 
-function CulturePanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyze: () => void }) {
+function CulturePanel({
+  editMode,
+  culturalDrivers,
+  setCulturalDrivers,
+  onSave,
+  onReanalyze,
+}: {
+  editMode: boolean;
+  culturalDrivers: CulturalDriverDrafts;
+  setCulturalDrivers: React.Dispatch<React.SetStateAction<CulturalDriverDrafts>>;
+  onSave: () => void;
+  onReanalyze: () => void;
+}) {
   const [driver, setDriver] = useState(culturalDrivers[0].title);
   const active = culturalDrivers.find((item) => item.title === driver) || culturalDrivers[0];
+  const updateDriver = (title: string, patch: Partial<CulturalDriverDrafts[number]>) => {
+    setCulturalDrivers((current) => current.map((item) => (item.title === title ? { ...item, ...patch } : item)));
+  };
+
   return (
     <div className="space-y-5">
       <h3 className="text-xl font-semibold">Cultural Drivers</h3>
@@ -1294,11 +1615,36 @@ function CulturePanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyz
         {culturalDrivers.map((item) => (
           <TabsContent key={item.title} value={item.title}>
             {editMode ? (
-              <SelectionEditor itemLabel={item.title} selected={item.selected}>
-                <Field label="Cultural Observation"><Textarea defaultValue={item.observation} /></Field>
-                <Field label="Underlying Tension"><Textarea defaultValue={item.tension} /></Field>
-                <Field label="What This Means for People"><Textarea defaultValue={item.people} /></Field>
-                <Field label="Marketing Implication"><Textarea defaultValue={item.implication} /></Field>
+              <SelectionEditor
+                itemLabel={item.title}
+                selected={item.selected}
+                onSelectedChange={(selected) => updateDriver(item.title, { selected })}
+                onSave={onSave}
+              >
+                <Field label="Cultural Observation">
+                  <Textarea
+                    value={item.observation}
+                    onChange={(event) => updateDriver(item.title, { observation: event.target.value })}
+                  />
+                </Field>
+                <Field label="Underlying Tension">
+                  <Textarea
+                    value={item.tension}
+                    onChange={(event) => updateDriver(item.title, { tension: event.target.value })}
+                  />
+                </Field>
+                <Field label="What This Means for People">
+                  <Textarea
+                    value={item.people}
+                    onChange={(event) => updateDriver(item.title, { people: event.target.value })}
+                  />
+                </Field>
+                <Field label="Marketing Implication">
+                  <Textarea
+                    value={item.implication}
+                    onChange={(event) => updateDriver(item.title, { implication: event.target.value })}
+                  />
+                </Field>
               </SelectionEditor>
             ) : (
               <div className="grid gap-4 xl:grid-cols-2">
@@ -1343,8 +1689,24 @@ function CulturePanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyz
   );
 }
 
-function ConsumerPanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyze: () => void }) {
+function ConsumerPanel({
+  editMode,
+  consumerStages,
+  setConsumerStages,
+  onSave,
+  onReanalyze,
+}: {
+  editMode: boolean;
+  consumerStages: ConsumerStageDrafts;
+  setConsumerStages: React.Dispatch<React.SetStateAction<ConsumerStageDrafts>>;
+  onSave: () => void;
+  onReanalyze: () => void;
+}) {
   const [stage, setStage] = useState("Discovery");
+  const updateStage = (stage: string, patch: Partial<ConsumerStageDrafts[number]>) => {
+    setConsumerStages((current) => current.map((item) => (item.stage === stage ? { ...item, ...patch } : item)));
+  };
+
   return (
     <div className="space-y-5">
       <Accordion type="single" collapsible className="rounded-md border border-border bg-panel px-4">
@@ -1377,10 +1739,32 @@ function ConsumerPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
         {consumerStages.map((item) => (
           <TabsContent key={item.stage} value={item.stage}>
             {editMode ? (
-              <SelectionEditor itemLabel={item.stage} selected={item.selected}>
-                <Field label="Stage definition"><Textarea defaultValue={item.definition} /></Field>
-                <Field label="Barrier analysis"><Textarea defaultValue={item.barrier} /></Field>
-                <Field label="Reviews"><Textarea defaultValue={item.reviews.join("\n")} /></Field>
+              <SelectionEditor
+                itemLabel={item.stage}
+                selected={item.selected}
+                onSelectedChange={(selected) => updateStage(item.stage, { selected })}
+                onSave={onSave}
+              >
+                <Field label="Stage definition">
+                  <Textarea
+                    value={item.definition}
+                    onChange={(event) => updateStage(item.stage, { definition: event.target.value })}
+                  />
+                </Field>
+                <Field label="Barrier analysis">
+                  <Textarea
+                    value={item.barrier}
+                    onChange={(event) => updateStage(item.stage, { barrier: event.target.value })}
+                  />
+                </Field>
+                <Field label="Reviews">
+                  <Textarea
+                    value={item.reviews.join("\n")}
+                    onChange={(event) =>
+                      updateStage(item.stage, { reviews: event.target.value.split("\n").filter(Boolean) })
+                    }
+                  />
+                </Field>
               </SelectionEditor>
             ) : (
               <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
@@ -1414,13 +1798,28 @@ function ConsumerPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
   );
 }
 
-function CategoryPanel({ editMode, onReanalyze }: { editMode: boolean; onReanalyze: () => void }) {
+function CategoryPanel({
+  editMode,
+  needStates,
+  setNeedStates,
+  onSave,
+  onReanalyze,
+}: {
+  editMode: boolean;
+  needStates: NeedStateDrafts;
+  setNeedStates: React.Dispatch<React.SetStateAction<NeedStateDrafts>>;
+  onSave: () => void;
+  onReanalyze: () => void;
+}) {
   const [need, setNeed] = useState(needStates[0].name);
   const activeNeed = needStates.find((item) => item.name === need) || needStates[0];
   const chartData = needStates.map((item) => ({
     subject: item.name.replace(" & ", " / "),
     score: item.score,
   }));
+  const updateNeed = (name: string, patch: Partial<NeedStateDrafts[number]>) => {
+    setNeedStates((current) => current.map((item) => (item.name === name ? { ...item, ...patch } : item)));
+  };
 
   return (
     <div className="space-y-5">
@@ -1437,9 +1836,27 @@ function CategoryPanel({ editMode, onReanalyze }: { editMode: boolean; onReanaly
         {needStates.map((item) => (
           <TabsContent key={item.name} value={item.name}>
             {editMode ? (
-              <SelectionEditor itemLabel={item.name} selected={item.selected}>
-                <Field label="Needstate description"><Textarea defaultValue={item.description} /></Field>
-                <Field label="Priority score"><Input type="number" min={0} max={100} defaultValue={item.score} /></Field>
+              <SelectionEditor
+                itemLabel={item.name}
+                selected={item.selected}
+                onSelectedChange={(selected) => updateNeed(item.name, { selected })}
+                onSave={onSave}
+              >
+                <Field label="Needstate description">
+                  <Textarea
+                    value={item.description}
+                    onChange={(event) => updateNeed(item.name, { description: event.target.value })}
+                  />
+                </Field>
+                <Field label="Priority score">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={item.score}
+                    onChange={(event) => updateNeed(item.name, { score: Number(event.target.value) })}
+                  />
+                </Field>
               </SelectionEditor>
             ) : (
               <SummaryBlock title={item.name}>{item.description}</SummaryBlock>
@@ -1496,12 +1913,14 @@ function SustainabilityView({
   updateGoal,
   removeGoal,
   onGenerateGoals,
+  onSave,
 }: {
   editMode: boolean;
   goals: SustainabilityGoal[];
   updateGoal: (id: string, patch: Partial<SustainabilityGoal>) => void;
   removeGoal: (id: string) => void;
   onGenerateGoals: () => void;
+  onSave: () => void;
 }) {
   const goalMix = useMemo(
     () =>
@@ -1517,10 +1936,16 @@ function SustainabilityView({
       <div className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-2xl font-semibold">Edit Sustainability Analysis</h3>
-          <Button onClick={onGenerateGoals} variant="accent">
-            <Plus />
-            Generate new goals
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={onSave}>
+              <Save />
+              Save
+            </Button>
+            <Button onClick={onGenerateGoals} variant="accent">
+              <Plus />
+              Generate new goals
+            </Button>
+          </div>
         </div>
         <Accordion type="multiple" className="rounded-md border border-border bg-panel px-4">
           {goals.map((goal) => (
@@ -1814,23 +2239,32 @@ function RecommendationDeck({ recommendation }: { recommendation: typeof recFrom
 function SelectionEditor({
   itemLabel,
   selected,
+  onSelectedChange,
+  onSave,
   children,
 }: {
   itemLabel: string;
   selected: boolean;
+  onSelectedChange: (selected: boolean) => void;
+  onSave: () => void;
   children: React.ReactNode;
 }) {
+  const selectedId = `${itemLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-selected`;
+
   return (
     <div className="space-y-4 rounded-md border border-border bg-panel p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-xl font-semibold">{itemLabel}</h3>
         <div className="flex items-center gap-3">
-          <Switch checked={selected} />
-          <Label>Use in summary</Label>
+          <Switch id={selectedId} checked={selected} onCheckedChange={onSelectedChange} />
+          <Label htmlFor={selectedId}>Use in summary</Label>
         </div>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">{children}</div>
-      <Button className="w-fit"><Save />Save</Button>
+      <Button className="w-fit" onClick={onSave}>
+        <Save />
+        Save
+      </Button>
     </div>
   );
 }
