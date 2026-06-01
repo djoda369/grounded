@@ -2867,7 +2867,7 @@ function NextStepsView({
   }
 
   return (
-    <div className="grid items-start gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+    <div className="grid items-stretch gap-5 xl:grid-cols-[0.9fr_1.1fr]">
       <section className="flex rounded-md border border-border bg-panel p-5">
         <div className="flex w-full flex-col">
         <img
