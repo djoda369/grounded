@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  ArrowRight,
   BarChart3,
   Building2,
   CheckCircle2,
@@ -21,6 +22,7 @@ import {
   Gauge,
   Globe2,
   Home,
+  ListChecks,
   Layers3,
   Leaf,
   LineChart,
@@ -58,7 +60,7 @@ import {
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -113,7 +115,7 @@ function cloneGaps() {
 }
 
 function App() {
-  const [page, setPage] = useState<PageKey>("iag");
+  const [page, setPage] = useState<PageKey>("home");
   const [editMode, setEditMode] = useState(false);
   const [context, setContext] = useState("");
   const [activeGap, setActiveGap] = useState<FiveCTab>("summary");
@@ -256,12 +258,15 @@ function App() {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-background text-foreground">
-        <div className="flex min-h-screen">
+      <div className="h-screen overflow-hidden bg-background text-foreground">
+        <div className="flex h-full overflow-hidden">
           <Sidebar
             page={page}
             setPage={(nextPage) => {
               setPage(nextPage);
+            }}
+            onHome={() => {
+              setPage("home");
             }}
             editMode={editMode}
             setEditMode={(value) => {
@@ -285,15 +290,18 @@ function App() {
             onGenerateGoals={addNutritionGoal}
           />
 
-          <main className="flex-1 overflow-hidden">
-            <div className="mx-auto flex min-h-screen w-full max-w-[1480px] flex-col px-5 py-5 md:px-8 lg:px-10">
-              <Header
-                page={page}
-                profile={profile}
-                averageConfidence={averageConfidence}
-                flagshipCount={flagshipCount}
-              />
+          <main className="min-w-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex min-h-full w-full max-w-[1480px] flex-col px-5 py-5 md:px-8 lg:px-10">
+              {page !== "home" && (
+                <Header
+                  page={page}
+                  profile={profile}
+                  averageConfidence={averageConfidence}
+                  flagshipCount={flagshipCount}
+                />
+              )}
               <div id="gaia-export-area" className="flex-1 pb-10">
+                {page === "home" && <HomeView setPage={setPage} />}
                 {page === "iag" && (
                   <IagView
                     editMode={editMode}
@@ -352,6 +360,7 @@ function App() {
 type SidebarProps = {
   page: PageKey;
   setPage: (page: PageKey) => void;
+  onHome: () => void;
   editMode: boolean;
   setEditMode: (value: boolean) => void;
   context: string;
@@ -370,6 +379,7 @@ type SidebarProps = {
 function Sidebar({
   page,
   setPage,
+  onHome,
   editMode,
   setEditMode,
   context,
@@ -384,53 +394,81 @@ function Sidebar({
   onSummarize,
   onGenerateGoals,
 }: SidebarProps) {
+  const isHome = page === "home";
+
   return (
-    <aside className="hidden w-[290px] shrink-0 border-r border-border bg-sidebar px-5 py-5 md:block">
-      <nav className="space-y-6">
+    <aside className="hidden h-full w-[290px] shrink-0 overflow-y-auto border-r border-border bg-sidebar px-5 py-5 md:block">
+      <nav className="flex flex-col gap-6">
         <div>
           <h1 className="font-serif text-3xl font-semibold">Gaia</h1>
         </div>
 
-        <div className="space-y-2">
-          <a className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted" href="#">
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted",
+              page === "home" && "bg-muted text-foreground",
+            )}
+            onClick={onHome}
+          >
             <Home className="size-4" />
             Home
-          </a>
-          <div className="rounded-md border border-border bg-muted/60 px-3 py-2 text-sm font-semibold">
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "rounded-md border border-border bg-muted/60 px-3 py-2 text-left text-sm font-semibold hover:bg-muted",
+              page !== "home" && "text-foreground",
+            )}
+            onClick={() => setPage("iag")}
+          >
             Yoplait UK
+          </button>
+        </div>
+
+        {!isHome && (
+          <>
+            <Separator />
+
+            <div className="flex flex-col gap-3">
+              <Label className="flex items-center gap-2 text-muted-foreground">
+                <FileText className="size-4" />
+                Page
+              </Label>
+              <Select value={page} onValueChange={(value) => setPage(value as PageKey)}>
+                <SelectTrigger aria-label="Selected page">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {pageOptions
+                    .filter((option) => option.key !== "home")
+                    .map((option) => (
+                      <SelectItem key={option.key} value={option.key}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-3">
+              <div className="flex items-center gap-2">
+                <Pencil className="size-4 text-accent" />
+                <Label htmlFor="edit-mode">Edit mode</Label>
+              </div>
+              <Switch id="edit-mode" checked={editMode} onCheckedChange={setEditMode} />
+            </div>
+          </>
+        )}
+
+        {isHome && (
+          <div className="rounded-md border border-border bg-card px-3 py-3 text-sm leading-6 text-muted-foreground">
+            Gaia turns brand evidence into a 5C diagnosis, an intention-action gap, and a recommended next step.
           </div>
-        </div>
+        )}
 
-        <Separator />
-
-        <div className="space-y-3">
-          <Label className="flex items-center gap-2 text-muted-foreground">
-            <FileText className="size-4" />
-            Page
-          </Label>
-          <Select value={page} onValueChange={(value) => setPage(value as PageKey)}>
-            <SelectTrigger aria-label="Selected page">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {pageOptions.map((option) => (
-                <SelectItem key={option.key} value={option.key}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-3">
-          <div className="flex items-center gap-2">
-            <Pencil className="size-4 text-accent" />
-            <Label htmlFor="edit-mode">Edit mode</Label>
-          </div>
-          <Switch id="edit-mode" checked={editMode} onCheckedChange={setEditMode} />
-        </div>
-
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           {(page === "iag" || page === "fiveC") && (
             <Button className="w-full justify-start" variant="outline" onClick={onExport}>
               <Download />
@@ -536,9 +574,9 @@ function Header({
   averageConfidence: number;
   flagshipCount: number;
 }) {
-  const currentPage = pageOptions.find((option) => option.key === page)?.label;
+  const currentPage = pageOptions.find((option) => option.key === page)?.label ?? "Home";
   return (
-    <header className="mb-5 space-y-5">
+    <header className="mb-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -546,7 +584,7 @@ function Header({
             <span>{currentPage}</span>
           </div>
           <h2 className="mt-3 font-serif text-4xl font-semibold md:text-5xl">
-            {page === "iag" ? "5C Intention Action Gaps" : currentPage}
+            {page === "home" ? "How Gaia Works" : page === "iag" ? "5C Intention Action Gaps" : currentPage}
           </h2>
         </div>
         <div className="grid grid-cols-3 gap-2 lg:w-[520px]">
@@ -555,7 +593,6 @@ function Header({
           <Metric icon={ShieldCheck} label="QA" value="Ready" />
         </div>
       </div>
-      <Progress value={100} aria-label="100% Loaded" />
     </header>
   );
 }
@@ -568,6 +605,143 @@ function Metric({ icon: Icon, label, value }: { icon: typeof Gauge; label: strin
         {label}
       </div>
       <p className="mt-1 text-lg font-semibold">{value}</p>
+    </div>
+  );
+}
+
+const homeWorkflow = [
+  {
+    title: "1. Start with evidence",
+    description:
+      "Paste context or upload source material so Gaia can ground the diagnostic in research, workshop notes, strategy decks, and market signals.",
+    icon: Upload,
+  },
+  {
+    title: "2. Review the 5C analysis",
+    description:
+      "Move through company, competition, culture, consumer, and category signals. Edit the working assumptions before they feed the summary.",
+    icon: ListChecks,
+  },
+  {
+    title: "3. Summarize the intention-action gap",
+    description:
+      "Convert selected 5C signals into the executive IAG view: gap type, importance, confidence, supporting evidence, and next steps.",
+    icon: LineChart,
+  },
+  {
+    title: "4. Build the next recommendation",
+    description:
+      "Use the sustainability and next-step modules to turn the gap into measurable goals, a focused strategic route, and an exportable summary.",
+    icon: Sparkles,
+  },
+];
+
+const homeModules: Array<{
+  page: PageKey;
+  title: string;
+  description: string;
+  action: string;
+  icon: typeof Layers3;
+}> = [
+  {
+    page: "fiveC",
+    title: "5C Workspace",
+    description: "Inspect and refine the source analysis behind the recommendation.",
+    action: "Open 5C",
+    icon: Layers3,
+  },
+  {
+    page: "iag",
+    title: "IAG Summary",
+    description: "See the synthesized gap, confidence score, evidence, and action plan.",
+    action: "View IAG",
+    icon: LineChart,
+  },
+  {
+    page: "sustainability",
+    title: "Sustainability Goals",
+    description: "Translate the strategic gap into measurable impact commitments.",
+    action: "Review Goals",
+    icon: Leaf,
+  },
+  {
+    page: "next",
+    title: "Next Steps",
+    description: "Package the strongest route for the client-facing recommendation.",
+    action: "See Next Steps",
+    icon: Target,
+  },
+];
+
+function HomeView({ setPage }: { setPage: (page: PageKey) => void }) {
+  return (
+    <div className="flex flex-col gap-8">
+      <section className="grid gap-6 pt-2 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-stretch">
+        <div>
+          <Badge variant="outline">Gaia workflow</Badge>
+          <h2 className="mt-4 max-w-4xl font-serif text-4xl font-semibold leading-[1.08] md:text-5xl">
+            From raw evidence to a defensible Intention Action Gap.
+          </h2>
+          <p className="mt-5 max-w-3xl text-base leading-8 text-muted-foreground">
+            Gaia is a guided strategy workspace for turning brand context, 5C research, and sustainability ambition
+            into an executive-ready diagnosis. Work through the modules in order, edit assumptions where needed, run
+            backend analysis when new evidence arrives, then export the summary when the logic is ready.
+          </p>
+        </div>
+
+        <Card className="flex h-full flex-col">
+          <CardHeader>
+            <CardTitle>Start a diagnostic</CardTitle>
+            <CardDescription>
+              Begin with source analysis, then synthesize the strongest gap and recommended action.
+            </CardDescription>
+          </CardHeader>
+          <CardFooter className="mt-auto flex-col items-stretch">
+            <Button className="w-full justify-start" variant="accent" onClick={() => setPage("fiveC")}>
+              Start with 5C
+              <ArrowRight data-icon="inline-end" />
+            </Button>
+            <Button className="w-full justify-start" variant="outline" onClick={() => setPage("iag")}>
+              View IAG summary
+              <ArrowRight data-icon="inline-end" />
+            </Button>
+          </CardFooter>
+        </Card>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-4">
+        {homeWorkflow.map(({ title, description, icon: Icon }) => (
+          <Card key={title} className="flex flex-col">
+            <CardHeader>
+              <div className="mb-2 flex size-10 items-center justify-center rounded-md bg-muted text-accent">
+                <Icon className="size-4" />
+              </div>
+              <CardTitle>{title}</CardTitle>
+              <CardDescription>{description}</CardDescription>
+            </CardHeader>
+          </Card>
+        ))}
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {homeModules.map(({ page, title, description, action, icon: Icon }) => (
+          <Card key={page} className="flex flex-col">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Icon className="size-4 text-accent" />
+                {title}
+              </CardTitle>
+              <CardDescription>{description}</CardDescription>
+            </CardHeader>
+            <CardContent className="mt-auto">
+              <Button className="w-full justify-start" variant="outline" onClick={() => setPage(page)}>
+                {action}
+                <ArrowRight data-icon="inline-end" />
+              </Button>
+            </CardContent>
+          </Card>
+        ))}
+      </section>
     </div>
   );
 }

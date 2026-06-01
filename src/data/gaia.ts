@@ -1,4 +1,4 @@
-export type PageKey = "iag" | "fiveC" | "sustainability" | "next";
+export type PageKey = "home" | "iag" | "fiveC" | "sustainability" | "next";
 export type FiveCTab =
   | "summary"
   | "company"
@@ -41,6 +41,7 @@ export type SustainabilityGoal = {
 };
 
 export const pageOptions: Array<{ key: PageKey; label: string }> = [
+  { key: "home", label: "Home" },
   { key: "iag", label: "IAG Summary" },
   { key: "fiveC", label: "5C" },
   { key: "sustainability", label: "Sustainability" },
