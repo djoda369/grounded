@@ -1,4 +1,10 @@
-export type PageKey = "home" | "iag" | "fiveC" | "sustainability" | "next";
+export type PageKey =
+  | "home"
+  | "addCompany"
+  | "iag"
+  | "fiveC"
+  | "sustainability"
+  | "next";
 export type FiveCTab =
   | "summary"
   | "company"
@@ -12,6 +18,11 @@ export type EvidenceBlock = {
   summary: string;
   facts: string[];
   sources: string[];
+  links?: Array<{
+    label: string;
+    url: string;
+    type?: string;
+  }>;
   signals: string[];
   implications: string[];
 };
@@ -42,6 +53,7 @@ export type SustainabilityGoal = {
 
 export const pageOptions: Array<{ key: PageKey; label: string }> = [
   { key: "home", label: "Home" },
+  { key: "addCompany", label: "Add Company" },
   { key: "iag", label: "IAG Summary" },
   { key: "fiveC", label: "5C" },
   { key: "sustainability", label: "Sustainability" },

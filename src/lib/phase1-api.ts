@@ -56,6 +56,37 @@ export type UploadedEvidence = {
   dataBase64: string;
 };
 
+export type SourceSettings = {
+  maxSources: 3 | 5 | 10;
+  enabledSourceTypes: {
+    website: boolean;
+    manual_links: boolean;
+    search: boolean;
+    reddit: boolean;
+    youtube: boolean;
+    reviews: boolean;
+    social_links: boolean;
+  };
+};
+
+export type SourceLedgerEntry = {
+  url: string;
+  type: keyof SourceSettings["enabledSourceTypes"] | string;
+  title: string;
+  fetched_at: string;
+  status: "ok" | "skipped" | "error";
+  excerpt: string;
+  error?: string;
+};
+
+export type CompetitorSuggestion = {
+  name: string;
+  rationale: string;
+  confidence: number;
+  source_links: string[];
+  selected: boolean;
+};
+
 export type AnalysisState = {
   status: "idle" | "loading" | "ready" | "error";
   message: string;
@@ -70,6 +101,21 @@ type Phase1Payload =
         | { source: string; kind: string; data_base64: string }
       >;
     };
+
+type OnboardingPayload = {
+  website_url: string;
+  company_name?: string;
+  source_settings: SourceSettings;
+  manual_links: string[];
+  documents: Array<{ source: string; kind: string; data_base64: string }>;
+};
+
+export type OnboardingResponse = {
+  profile: typeof companyProfile;
+  source_ledger: SourceLedgerEntry[];
+  source_settings: SourceSettings;
+  analysis: Phase1AnalysisResponse;
+};
 
 const fiveCKeys: FiveCTab[] = ["summary", "company", "competition", "culture", "consumer", "category"];
 
@@ -105,6 +151,49 @@ export async function requestPhase1Analysis(payload: Phase1Payload): Promise<Pha
     throw new Error(data?.error || "Phase 1 analysis failed.");
   }
   return data as Phase1AnalysisResponse;
+}
+
+export async function requestOnboarding(payload: OnboardingPayload): Promise<OnboardingResponse> {
+  const data = await postJson("/api/phase1/onboard", payload, "Company onboarding failed.");
+  return data as OnboardingResponse;
+}
+
+export async function requestCompetitorSuggestions(payload: {
+  profile: typeof companyProfile;
+  website_url: string;
+  source_settings: SourceSettings;
+  source_ledger: SourceLedgerEntry[];
+}): Promise<CompetitorSuggestion[]> {
+  const data = await postJson(
+    "/api/phase1/competitors/suggest",
+    payload,
+    "Competitor suggestion failed.",
+  );
+  return Array.isArray(data?.suggestions) ? (data.suggestions as CompetitorSuggestion[]) : [];
+}
+
+async function postJson(path: string, payload: unknown, fallbackError: string) {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Phase 1 backend is unreachable: ${error.message}`
+        : "Phase 1 backend is unreachable.",
+    );
+  }
+
+  const responseText = await response.text();
+  const data = parseJsonResponse(responseText, response);
+  if (!response.ok) {
+    throw new Error(data?.error || fallbackError);
+  }
+  return data;
 }
 
 function parseJsonResponse(responseText: string, response: Response) {
@@ -165,6 +254,14 @@ export function buildPhase1Payload(
   }
 
   return { company_name: companyName, text: fallbackText };
+}
+
+export function uploadedEvidenceToDocuments(uploads: UploadedEvidence[]) {
+  return uploads.map((upload) => ({
+    source: upload.source,
+    kind: upload.kind,
+    data_base64: upload.dataBase64,
+  }));
 }
 
 export function mapPhase1ToFrontend(
@@ -271,6 +368,9 @@ function mapEvidence(insight?: BackendIagInsight): EvidenceBlock[] {
     summary: item.excerpt,
     facts: metadataFacts(item.metadata),
     sources: [item.source],
+    links: isHttpUrl(item.source)
+      ? [{ label: shortSource(item.source), url: item.source, type: String(item.metadata?.kind || "source") }]
+      : undefined,
     signals: [`Evidence score: ${Math.round(item.score)}%`],
     implications: insight.recommendations.slice(0, 2),
   }));
@@ -361,4 +461,8 @@ function clampPercent(value: number) {
 
 function titleCase(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function isHttpUrl(value: string) {
+  return /^https?:\/\//i.test(value);
 }

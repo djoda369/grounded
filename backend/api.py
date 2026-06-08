@@ -7,6 +7,7 @@ import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -14,6 +15,14 @@ if str(ROOT_DIR) not in sys.path:
 
 from core.phase1 import Phase1Analyzer
 from core.phase1.schema import to_plain
+from core.phase1.source_collector import (
+    collect_sources,
+    infer_company_name,
+    ledger_to_documents,
+    parse_source_settings,
+    suggest_competitors,
+    validate_public_website_url,
+)
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
@@ -32,13 +41,23 @@ class Phase1APIHandler(BaseHTTPRequestHandler):
         self._send_json({"error": "Not found"}, status=404)
 
     def do_POST(self) -> None:
-        if self.path.rstrip("/") != "/api/phase1/analyze":
+        route = urlparse(self.path).path.rstrip("/")
+        if route not in {
+            "/api/phase1/analyze",
+            "/api/phase1/onboard",
+            "/api/phase1/competitors/suggest",
+        }:
             self._send_json({"error": "Not found"}, status=404)
             return
 
         try:
             payload = self._read_json()
-            result = analyze_payload(payload, self.analyzer)
+            if route == "/api/phase1/analyze":
+                result = analyze_payload(payload, self.analyzer)
+            elif route == "/api/phase1/onboard":
+                result = onboard_payload(payload, self.analyzer)
+            else:
+                result = suggest_competitors_payload(payload)
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=400)
             return
@@ -100,6 +119,91 @@ def analyze_payload(payload: dict[str, Any], analyzer: Phase1Analyzer | None = N
         analysis = analyzer.analyze_texts([text], company_name)
 
     return to_plain(analysis)
+
+
+def onboard_payload(payload: dict[str, Any], analyzer: Phase1Analyzer | None = None) -> dict[str, Any]:
+    website_url = validate_public_website_url(str(payload.get("website_url") or ""))
+    source_settings = parse_source_settings(payload.get("source_settings"))
+    source_ledger = collect_sources(
+        website_url,
+        source_settings=source_settings,
+        manual_links=payload.get("manual_links"),
+    )
+    company_name = str(payload.get("company_name") or "").strip() or infer_company_name(website_url, source_ledger)
+    documents = ledger_to_documents(source_ledger)
+    uploaded_documents = payload.get("documents")
+    if uploaded_documents is not None:
+        if not isinstance(uploaded_documents, list):
+            raise ValueError("documents must be a list.")
+        documents.extend(uploaded_documents)
+    if not documents:
+        skipped = "; ".join(
+            f"{entry.get('type')}: {entry.get('error')}"
+            for entry in source_ledger
+            if entry.get("status") != "ok" and entry.get("error")
+        )
+        raise ValueError(f"No usable public evidence was collected. {skipped}".strip())
+
+    analysis = analyze_documents_payload(documents, company_name, analyzer or Phase1Analyzer())
+    plain_analysis = to_plain(analysis)
+    profile = build_company_profile(company_name, website_url, plain_analysis, source_ledger)
+    return {
+        "profile": profile,
+        "source_ledger": source_ledger,
+        "analysis": plain_analysis,
+        "source_settings": source_settings,
+    }
+
+
+def suggest_competitors_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    website_url = validate_public_website_url(str(payload.get("website_url") or ""))
+    profile = payload.get("profile")
+    if not isinstance(profile, dict):
+        raise ValueError("profile must be a JSON object.")
+    source_ledger = payload.get("source_ledger")
+    if not isinstance(source_ledger, list):
+        source_ledger = []
+    suggestions = suggest_competitors(profile, website_url, source_ledger)
+    return {"suggestions": suggestions}
+
+
+def build_company_profile(
+    company_name: str,
+    website_url: str,
+    analysis: dict[str, Any],
+    source_ledger: list[dict[str, Any]],
+) -> dict[str, Any]:
+    company = analysis.get("five_c", {}).get("company", {}) if isinstance(analysis.get("five_c"), dict) else {}
+    summary = analysis.get("iag", {}).get("summary", {}) if isinstance(analysis.get("iag"), dict) else {}
+    brand = company_name.split()[0] if company_name else infer_company_name(website_url, source_ledger)
+    recommendation = ""
+    if isinstance(summary, dict):
+        recommendations = summary.get("recommendations")
+        if isinstance(recommendations, list) and recommendations:
+            recommendation = str(recommendations[0])
+    return {
+        "brand": brand,
+        "market": company_name,
+        "project": "Website onboarding diagnostic",
+        "belief": str(company.get("from_state") or company.get("summary") or "Belief requires more public evidence."),
+        "purpose": str(company.get("to_state") or company.get("summary") or "Purpose requires more public evidence."),
+        "pursuits": {
+            "product": first_available_source_excerpt(source_ledger, "products")
+            or "Product pursuit requires more public evidence.",
+            "platform": first_available_source_excerpt(source_ledger, "purpose")
+            or first_available_source_excerpt(source_ledger, "about")
+            or "Platform pursuit requires more public evidence.",
+            "impact": recommendation or "Impact pursuit requires more public evidence.",
+        },
+    }
+
+
+def first_available_source_excerpt(source_ledger: list[dict[str, Any]], keyword: str) -> str:
+    for entry in source_ledger:
+        haystack = f"{entry.get('url', '')} {entry.get('title', '')}".lower()
+        if entry.get("status") == "ok" and keyword in haystack:
+            return str(entry.get("excerpt") or "")[:360]
+    return ""
 
 
 def analyze_documents_payload(

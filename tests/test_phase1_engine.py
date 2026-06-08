@@ -8,6 +8,22 @@ from core.phase1 import Phase1Analyzer
 from core.phase1.assistant import GroundedAssistant
 from core.phase1.ingestion import ReportIngestionPipeline, normalize_text
 from backend.api import analyze_payload
+from backend.api import onboard_payload, suggest_competitors_payload
+from core.phase1.source_collector import (
+    FetchResult,
+    collect_sources,
+    extract_html,
+    validate_public_website_url,
+)
+
+
+def fake_fetcher(pages):
+    def fetch(url: str) -> FetchResult:
+        if url not in pages:
+            return FetchResult(url=url, status=404, content_type="text/html", body="")
+        return FetchResult(url=url, status=200, content_type="text/html", body=pages[url])
+
+    return fetch
 
 
 class Phase1EngineTest(unittest.TestCase):
@@ -99,6 +115,157 @@ class Phase1EngineTest(unittest.TestCase):
 
         self.assertEqual(result["documents"][0]["kind"], "txt")
         self.assertIn("summary", result["iag"])
+
+    def test_url_validation_requires_public_http_url(self):
+        self.assertEqual(validate_public_website_url("example.com"), "https://example.com")
+        with self.assertRaises(ValueError):
+            validate_public_website_url("ftp://example.com")
+        with self.assertRaises(ValueError):
+            validate_public_website_url("http://127.0.0.1:8787")
+        with self.assertRaises(ValueError):
+            validate_public_website_url("http://localhost")
+
+    def test_html_text_extraction_returns_title_text_and_links(self):
+        extracted = extract_html(
+            """
+            <html><head><title>Acme Purpose</title><style>.x{}</style></head>
+            <body><h1>Purpose</h1><p>Acme makes low-waste dairy for families.</p>
+            <a href="/about">About us</a><script>ignore()</script></body></html>
+            """
+        )
+
+        self.assertEqual(extracted["title"], "Acme Purpose")
+        self.assertIn("low-waste dairy", extracted["text"])
+        self.assertEqual(extracted["links"][0], ("/about", "About us"))
+
+    def test_source_collection_crawls_same_domain_with_limits_and_dedupes(self):
+        long_copy = " ".join(["Acme dairy purpose sustainability competitors include Danone and Muller."] * 20)
+        pages = {
+            "https://acme.test/": f"""
+                <title>Acme Dairy</title><p>{long_copy}</p>
+                <a href="/about">About</a>
+                <a href="/about#team">Duplicate about</a>
+                <a href="/products">Products</a>
+                <a href="/careers">Careers</a>
+            """,
+            "https://acme.test/about": f"<title>About Acme</title><p>{long_copy}</p>",
+            "https://acme.test/products": f"<title>Acme Products</title><p>{long_copy}</p>",
+            "https://acme.test/careers": f"<title>Acme Careers</title><p>{long_copy}</p>",
+        }
+
+        ledger = collect_sources(
+            "https://acme.test/",
+            {"maxSources": 3, "enabledSourceTypes": {"website": True}},
+            fetcher=fake_fetcher(pages),
+        )
+
+        ok_urls = [entry["url"] for entry in ledger if entry["status"] == "ok"]
+        self.assertEqual(len(ok_urls), 3)
+        self.assertIn("https://acme.test/about", ok_urls)
+        self.assertEqual(len(ok_urls), len(set(ok_urls)))
+
+    def test_source_collection_records_skipped_sources(self):
+        long_copy = " ".join(["Acme sustainability purpose."] * 20)
+        ledger = collect_sources(
+            "https://acme.test/",
+            {
+                "maxSources": 3,
+                "enabledSourceTypes": {
+                    "website": True,
+                    "search": True,
+                    "reviews": True,
+                    "reddit": True,
+                },
+            },
+            fetcher=fake_fetcher({"https://acme.test/": f"<title>Acme</title><p>{long_copy}</p>"}),
+        )
+
+        skipped = [entry for entry in ledger if entry["status"] == "skipped"]
+        self.assertGreaterEqual(len(skipped), 3)
+        self.assertTrue(all(entry.get("error") for entry in skipped))
+
+    def test_source_collection_applies_limit_across_social_links(self):
+        long_copy = " ".join(["Acme sustainability purpose and products."] * 20)
+        pages = {
+            "https://acme.test/": f"""
+                <title>Acme</title><p>{long_copy}</p>
+                <a href="/about">About</a>
+                <a href="/products">Products</a>
+                <a href="https://www.youtube.com/acme">YouTube</a>
+            """,
+            "https://acme.test/about": f"<title>About</title><p>{long_copy}</p>",
+            "https://acme.test/products": f"<title>Products</title><p>{long_copy}</p>",
+            "https://www.youtube.com/acme": f"<title>Acme YouTube</title><p>{long_copy}</p>",
+        }
+
+        ledger = collect_sources(
+            "https://acme.test/",
+            {
+                "maxSources": 3,
+                "enabledSourceTypes": {
+                    "website": True,
+                    "social_links": True,
+                },
+            },
+            fetcher=fake_fetcher(pages),
+        )
+
+        self.assertEqual(
+            len([entry for entry in ledger if entry["status"] == "ok"]),
+            3,
+        )
+
+    def test_onboarding_api_payload_collects_sources_and_runs_analysis(self):
+        long_copy = " ".join(
+            [
+                "Acme believes in family nutrition and low waste dairy.",
+                "Competitors include Danone and Muller.",
+                "The sustainability goal is to reduce emissions by 2030.",
+            ]
+            * 15
+        )
+
+        original_collect = __import__("backend.api", fromlist=["collect_sources"]).collect_sources
+        try:
+            import backend.api as api
+
+            api.collect_sources = lambda *args, **kwargs: [
+                {
+                    "url": "https://acme.test/",
+                    "type": "website",
+                    "title": "Acme Dairy",
+                    "fetched_at": "2026-01-01T00:00:00+00:00",
+                    "status": "ok",
+                    "excerpt": long_copy,
+                    "error": "",
+                }
+            ]
+            result = onboard_payload({"website_url": "https://acme.test/", "source_settings": {"maxSources": 3}})
+        finally:
+            api.collect_sources = original_collect
+
+        self.assertEqual(result["profile"]["market"], "Acme Dairy")
+        self.assertEqual(result["source_ledger"][0]["status"], "ok")
+        self.assertIn("summary", result["analysis"]["iag"])
+
+    def test_competitor_suggestion_parses_source_names(self):
+        result = suggest_competitors_payload(
+            {
+                "website_url": "https://acme.test/",
+                "profile": {"brand": "Acme", "market": "Acme Dairy"},
+                "source_ledger": [
+                    {
+                        "url": "https://acme.test/",
+                        "status": "ok",
+                        "excerpt": "Acme competes alongside Danone, Muller Group, and Arla Foods in dairy.",
+                    }
+                ],
+            }
+        )
+
+        names = [item["name"] for item in result["suggestions"]]
+        self.assertIn("Danone", names)
+        self.assertTrue(all(item["selected"] is False for item in result["suggestions"]))
 
 
 if __name__ == "__main__":

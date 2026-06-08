@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -108,8 +108,14 @@ import {
   buildPhase1Payload,
   fileToUploadedEvidence,
   mapPhase1ToFrontend,
+  requestCompetitorSuggestions,
+  requestOnboarding,
   requestPhase1Analysis,
+  uploadedEvidenceToDocuments,
   type AnalysisState,
+  type CompetitorSuggestion,
+  type SourceLedgerEntry,
+  type SourceSettings,
   type UploadedEvidence,
 } from "@/lib/phase1-api";
 import groundedLogo from "@/assets/grounded-logo.png";
@@ -118,7 +124,21 @@ import baLogo from "@/assets/ba-logo.png";
 import fwLogo from "@/assets/fw-logo.png";
 import saLogo from "@/assets/sa-logo.png";
 
-const workspaceStorageKey = "gaia-workspace-v1";
+const legacyWorkspaceStorageKey = "gaia-workspace-v1";
+const workspaceHistoryStorageKey = "gaia-workspace-history-v1";
+
+const defaultSourceSettings: SourceSettings = {
+  maxSources: 5,
+  enabledSourceTypes: {
+    website: true,
+    manual_links: true,
+    search: false,
+    reddit: false,
+    youtube: false,
+    reviews: false,
+    social_links: true,
+  },
+};
 
 const fiveCTabs: Array<{
   key: FiveCTab;
@@ -167,6 +187,18 @@ type PersistedWorkspace = {
   needStates: NeedStateDrafts;
 };
 
+type CompanyWorkspace = Omit<PersistedWorkspace, "version" | "savedAt"> & {
+  version: 2;
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  websiteUrl: string;
+  sourceSettings: SourceSettings;
+  sourceLedger: SourceLedgerEntry[];
+  competitorSuggestions: CompetitorSuggestion[];
+  selectedCompetitors: string[];
+};
+
 function cloneDraft<T>(draft: T): T {
   return structuredClone(draft);
 }
@@ -185,13 +217,124 @@ function loadPersistedWorkspace(): Partial<PersistedWorkspace> | null {
   if (typeof window === "undefined") return null;
 
   try {
-    const raw = window.localStorage.getItem(workspaceStorageKey);
+    const raw = window.localStorage.getItem(legacyWorkspaceStorageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
+}
+
+function loadWorkspaceHistory(): CompanyWorkspace[] {
+  if (typeof window === "undefined") return [createSeedWorkspace()];
+
+  try {
+    const raw = window.localStorage.getItem(workspaceHistoryStorageKey);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed) && parsed.length) {
+      return parsed.map(restoreWorkspaceRecord);
+    }
+  } catch {
+    // Fall through to legacy migration.
+  }
+
+  const legacy = loadPersistedWorkspace();
+  return [createSeedWorkspace(legacy ?? undefined)];
+}
+
+function createSeedWorkspace(saved?: Partial<PersistedWorkspace>): CompanyWorkspace {
+  const now = new Date().toISOString();
+  const profile = restoreProfile(saved?.profile);
+  return {
+    version: 2,
+    id: `workspace-yoplait-${Date.parse(now) || 1}`,
+    createdAt: saved?.savedAt ?? now,
+    updatedAt: saved?.savedAt ?? now,
+    websiteUrl: "https://www.yoplait.co.uk/",
+    sourceSettings: cloneDraft(defaultSourceSettings),
+    sourceLedger: [],
+    competitorSuggestions: [],
+    selectedCompetitors: restoreArray(saved?.competitors, competitors)
+      .filter((item) => item.selected)
+      .map((item) => item.name),
+    context: saved?.context ?? "",
+    uploadedEvidence: restoreArray(saved?.uploadedEvidence, []),
+    gapDrafts: restoreGaps(saved?.gapDrafts),
+    profile,
+    jobToBeDone: saved?.jobToBeDone ?? strategicShifts.job,
+    goals: restoreArray(saved?.goals, initialGoals),
+    recommendation: restoreRecommendation(saved?.recommendation),
+    strategicShifts: restoreStrategicShifts(saved?.strategicShifts),
+    competitors: restoreArray(saved?.competitors, competitors) as CompetitorDrafts,
+    culturalDrivers: restoreArray(saved?.culturalDrivers, culturalDrivers) as CulturalDriverDrafts,
+    consumerStages: restoreArray(saved?.consumerStages, consumerStages) as ConsumerStageDrafts,
+    needStates: restoreArray(saved?.needStates, needStates) as NeedStateDrafts,
+  };
+}
+
+function restoreWorkspaceRecord(value: unknown): CompanyWorkspace {
+  if (!isRecord(value)) return createSeedWorkspace();
+  const fallback = createSeedWorkspace();
+  const profile = restoreProfile(value.profile);
+  return {
+    ...fallback,
+    id: typeof value.id === "string" ? value.id : fallback.id,
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : fallback.createdAt,
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : fallback.updatedAt,
+    websiteUrl: typeof value.websiteUrl === "string" ? value.websiteUrl : fallback.websiteUrl,
+    sourceSettings: restoreSourceSettings(value.sourceSettings),
+    sourceLedger: restoreArray(value.sourceLedger, []) as SourceLedgerEntry[],
+    competitorSuggestions: restoreArray(value.competitorSuggestions, []) as CompetitorSuggestion[],
+    selectedCompetitors: restoreArray(value.selectedCompetitors, []),
+    context: typeof value.context === "string" ? value.context : "",
+    uploadedEvidence: restoreArray(value.uploadedEvidence, []),
+    gapDrafts: restoreGaps(value.gapDrafts),
+    profile,
+    jobToBeDone: typeof value.jobToBeDone === "string" ? value.jobToBeDone : strategicShifts.job,
+    goals: restoreArray(value.goals, initialGoals),
+    recommendation: restoreRecommendation(value.recommendation),
+    strategicShifts: restoreStrategicShifts(value.strategicShifts),
+    competitors: restoreArray(value.competitors, competitors) as CompetitorDrafts,
+    culturalDrivers: restoreArray(value.culturalDrivers, culturalDrivers) as CulturalDriverDrafts,
+    consumerStages: restoreArray(value.consumerStages, consumerStages) as ConsumerStageDrafts,
+    needStates: restoreArray(value.needStates, needStates) as NeedStateDrafts,
+  };
+}
+
+function restoreSourceSettings(value: unknown): SourceSettings {
+  if (!isRecord(value)) return cloneDraft(defaultSourceSettings);
+  const enabled = isRecord(value.enabledSourceTypes)
+    ? value.enabledSourceTypes
+    : {};
+  return {
+    maxSources:
+      value.maxSources === 3 || value.maxSources === 5 || value.maxSources === 10
+        ? value.maxSources
+        : defaultSourceSettings.maxSources,
+    enabledSourceTypes: {
+      website: typeof enabled.website === "boolean" ? enabled.website : true,
+      manual_links: typeof enabled.manual_links === "boolean" ? enabled.manual_links : true,
+      search: typeof enabled.search === "boolean" ? enabled.search : false,
+      reddit: typeof enabled.reddit === "boolean" ? enabled.reddit : false,
+      youtube: typeof enabled.youtube === "boolean" ? enabled.youtube : false,
+      reviews: typeof enabled.reviews === "boolean" ? enabled.reviews : false,
+      social_links: typeof enabled.social_links === "boolean" ? enabled.social_links : true,
+    },
+  };
+}
+
+function upsertWorkspace(
+  history: CompanyWorkspace[],
+  workspace: CompanyWorkspace,
+) {
+  const next = history.some((item) => item.id === workspace.id)
+    ? history.map((item) => (item.id === workspace.id ? workspace : item))
+    : [workspace, ...history];
+  return [...next].sort(
+    (a, b) =>
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
 }
 
 function restoreGaps(savedGaps?: unknown) {
@@ -278,43 +421,45 @@ function restoreRecommendation(savedRecommendation?: unknown) {
 }
 
 function App() {
-  const savedWorkspace = useMemo(loadPersistedWorkspace, []);
+  const initialWorkspaces = useMemo(loadWorkspaceHistory, []);
+  const initialWorkspace = initialWorkspaces[0] ?? createSeedWorkspace();
+  const [workspaceHistory, setWorkspaceHistory] =
+    useState<CompanyWorkspace[]>(initialWorkspaces);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(
+    initialWorkspace.id,
+  );
   const [page, setPage] = useState<PageKey>("home");
   const [editMode, setEditMode] = useState(false);
-  const [context, setContext] = useState(() => savedWorkspace?.context ?? "");
+  const [context, setContext] = useState(() => initialWorkspace.context);
   const [activeGap, setActiveGap] = useState<FiveCTab>("summary");
   const [activeFiveC, setActiveFiveC] = useState<FiveCTab>("summary");
   const [gapDrafts, setGapDrafts] = useState<Record<FiveCTab, GapInsight>>(() =>
-    restoreGaps(savedWorkspace?.gapDrafts),
+    restoreGaps(initialWorkspace.gapDrafts),
   );
   const [profile, setProfile] = useState<CompanyProfileDraft>(() =>
-    restoreProfile(savedWorkspace?.profile),
+    restoreProfile(initialWorkspace.profile),
   );
   const [jobToBeDone, setJobToBeDone] = useState(
-    () => savedWorkspace?.jobToBeDone ?? strategicShifts.job,
+    () => initialWorkspace.jobToBeDone,
   );
   const [goals, setGoals] = useState<SustainabilityGoal[]>(() =>
-    restoreArray(savedWorkspace?.goals, initialGoals),
+    restoreArray(initialWorkspace.goals, initialGoals),
   );
   const [rec, setRec] = useState<RecommendationDraft>(() =>
-    restoreRecommendation(savedWorkspace?.recommendation),
+    restoreRecommendation(initialWorkspace.recommendation),
   );
   const [strategicShiftDrafts, setStrategicShiftDrafts] =
     useState<StrategicShiftDraft>(() =>
-      restoreStrategicShifts(savedWorkspace?.strategicShifts),
+      restoreStrategicShifts(initialWorkspace.strategicShifts),
     );
   const [competitorDrafts, setCompetitorDrafts] = useState<CompetitorDrafts>(
-    () =>
-      restoreArray(
-        savedWorkspace?.competitors,
-        competitors,
-      ) as CompetitorDrafts,
+    () => restoreArray(initialWorkspace.competitors, competitors) as CompetitorDrafts,
   );
   const [culturalDriverDrafts, setCulturalDriverDrafts] =
     useState<CulturalDriverDrafts>(
       () =>
         restoreArray(
-          savedWorkspace?.culturalDrivers,
+          initialWorkspace.culturalDrivers,
           culturalDrivers,
         ) as CulturalDriverDrafts,
     );
@@ -322,21 +467,31 @@ function App() {
     useState<ConsumerStageDrafts>(
       () =>
         restoreArray(
-          savedWorkspace?.consumerStages,
+          initialWorkspace.consumerStages,
           consumerStages,
         ) as ConsumerStageDrafts,
     );
   const [needStateDrafts, setNeedStateDrafts] = useState<NeedStateDrafts>(
     () =>
-      restoreArray(savedWorkspace?.needStates, needStates) as NeedStateDrafts,
+      restoreArray(initialWorkspace.needStates, needStates) as NeedStateDrafts,
   );
   const [analysisState, setAnalysisState] = useState<AnalysisState>({
     status: "idle",
     message: "",
   });
   const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence[]>(
-    () => restoreArray(savedWorkspace?.uploadedEvidence, []),
+    () => restoreArray(initialWorkspace.uploadedEvidence, []),
   );
+  const [websiteUrl, setWebsiteUrl] = useState(initialWorkspace.websiteUrl);
+  const [sourceSettings, setSourceSettings] = useState<SourceSettings>(() =>
+    restoreSourceSettings(initialWorkspace.sourceSettings),
+  );
+  const [sourceLedger, setSourceLedger] = useState<SourceLedgerEntry[]>(
+    () => restoreArray(initialWorkspace.sourceLedger, []),
+  );
+  const [competitorSuggestions, setCompetitorSuggestions] = useState<
+    CompetitorSuggestion[]
+  >(() => restoreArray(initialWorkspace.competitorSuggestions, []));
 
   const flagshipCount = goals.filter((goal) => goal.flagship).length;
   const averageConfidence = Math.round(
@@ -348,12 +503,21 @@ function App() {
     return;
   }
 
-  function saveWorkspace(message = "Workspace saved.") {
-    if (typeof window === "undefined") return;
-
-    const workspace: PersistedWorkspace = {
-      version: 1,
-      savedAt: new Date().toISOString(),
+  function buildActiveWorkspace(
+    patch: Partial<CompanyWorkspace> = {},
+  ): CompanyWorkspace {
+    const existing =
+      workspaceHistory.find((workspace) => workspace.id === activeWorkspaceId) ??
+      initialWorkspace;
+    const now = new Date().toISOString();
+    const selectedCompetitors = competitorDrafts
+      .filter((item) => item.selected)
+      .map((item) => item.name);
+    return {
+      ...existing,
+      version: 2,
+      id: activeWorkspaceId,
+      updatedAt: now,
       context,
       uploadedEvidence,
       gapDrafts,
@@ -366,28 +530,70 @@ function App() {
       culturalDrivers: culturalDriverDrafts,
       consumerStages: consumerStageDrafts,
       needStates: needStateDrafts,
+      websiteUrl,
+      sourceSettings,
+      sourceLedger,
+      competitorSuggestions,
+      selectedCompetitors,
+      ...patch,
     };
+  }
+
+  function persistWorkspaceHistory(nextHistory: CompanyWorkspace[]) {
+    if (typeof window === "undefined") return;
 
     try {
       window.localStorage.setItem(
-        workspaceStorageKey,
-        JSON.stringify(workspace),
+        workspaceHistoryStorageKey,
+        JSON.stringify(nextHistory),
       );
-      announce(message);
     } catch {
-      const workspaceWithoutUploads = { ...workspace, uploadedEvidence: [] };
+      const historyWithoutUploads = nextHistory.map((workspace) => ({
+        ...workspace,
+        uploadedEvidence: [],
+      }));
       try {
         window.localStorage.setItem(
-          workspaceStorageKey,
-          JSON.stringify(workspaceWithoutUploads),
-        );
-        announce(
-          `${message} Uploaded files were not saved because browser storage is limited.`,
+          workspaceHistoryStorageKey,
+          JSON.stringify(historyWithoutUploads),
         );
       } catch {
         announce("Workspace could not be saved in this browser.");
       }
     }
+  }
+
+  function saveWorkspace(message = "Workspace saved.", patch: Partial<CompanyWorkspace> = {}) {
+    const workspace = buildActiveWorkspace(patch);
+    setWorkspaceHistory((current) => {
+      const next = upsertWorkspace(current, workspace);
+      persistWorkspaceHistory(next);
+      return next;
+    });
+    announce(message);
+  }
+
+  function applyWorkspace(workspace: CompanyWorkspace) {
+    setActiveWorkspaceId(workspace.id);
+    setWebsiteUrl(workspace.websiteUrl);
+    setSourceSettings(restoreSourceSettings(workspace.sourceSettings));
+    setSourceLedger(restoreArray(workspace.sourceLedger, []));
+    setCompetitorSuggestions(restoreArray(workspace.competitorSuggestions, []));
+    setContext(workspace.context);
+    setUploadedEvidence(restoreArray(workspace.uploadedEvidence, []));
+    setGapDrafts(restoreGaps(workspace.gapDrafts));
+    setProfile(restoreProfile(workspace.profile));
+    setJobToBeDone(workspace.jobToBeDone);
+    setGoals(restoreArray(workspace.goals, initialGoals));
+    setRec(restoreRecommendation(workspace.recommendation));
+    setStrategicShiftDrafts(restoreStrategicShifts(workspace.strategicShifts));
+    setCompetitorDrafts(restoreArray(workspace.competitors, competitors) as CompetitorDrafts);
+    setCulturalDriverDrafts(restoreArray(workspace.culturalDrivers, culturalDrivers) as CulturalDriverDrafts);
+    setConsumerStageDrafts(restoreArray(workspace.consumerStages, consumerStages) as ConsumerStageDrafts);
+    setNeedStateDrafts(restoreArray(workspace.needStates, needStates) as NeedStateDrafts);
+    setPage("iag");
+    setActiveGap("summary");
+    setActiveFiveC("summary");
   }
 
   async function exportPdf() {
@@ -426,8 +632,8 @@ function App() {
     gapDrafts.summary.nextSteps.forEach((step, index) =>
       write(`${index + 1}. ${step}`, 9, 4),
     );
-    pdf.save("gaia-yoplait-iag-summary.pdf");
-    announce("PDF export generated for the current Yoplait diagnostic.");
+    pdf.save(`gaia-${slugify(profile.market || "company")}-iag-summary.pdf`);
+    announce("PDF export generated for the current diagnostic.");
   }
 
   async function reanalyze(label: string) {
@@ -436,20 +642,35 @@ function App() {
       message: `Analyzing ${label} with the Phase 1 backend.`,
     });
     try {
-      const fallbackText = buildBaselineEvidenceText(
-        profile,
-        jobToBeDone,
-        goals,
-        gapDrafts,
-      );
-      const payload = buildPhase1Payload(
-        profile.market,
-        context,
-        uploadedEvidence,
-        fallbackText,
-      );
-      const analysis = await requestPhase1Analysis(payload);
-      const mapped = mapPhase1ToFrontend(analysis, profile);
+      let mapped;
+      if (sourceLedger.length > 0 && websiteUrl) {
+        const response = await requestOnboarding({
+          website_url: websiteUrl,
+          company_name: profile.market,
+          source_settings: sourceSettings,
+          manual_links: sourceLedger
+            .filter((entry) => entry.type === "manual_links")
+            .map((entry) => entry.url),
+          documents: uploadedEvidenceToDocuments(uploadedEvidence),
+        });
+        setSourceLedger(response.source_ledger);
+        mapped = mapPhase1ToFrontend(response.analysis, profile);
+      } else {
+        const fallbackText = buildBaselineEvidenceText(
+          profile,
+          jobToBeDone,
+          goals,
+          gapDrafts,
+        );
+        const payload = buildPhase1Payload(
+          profile.market,
+          context,
+          uploadedEvidence,
+          fallbackText,
+        );
+        const analysis = await requestPhase1Analysis(payload);
+        mapped = mapPhase1ToFrontend(analysis, profile);
+      }
 
       setGapDrafts(mapped.gaps);
       setProfile(mapped.profile);
@@ -473,6 +694,129 @@ function App() {
             : "Phase 1 backend analysis failed.",
       });
     }
+  }
+
+  async function onboardCompany({
+    websiteUrl: nextWebsiteUrl,
+    companyName,
+    manualLinks,
+  }: {
+    websiteUrl: string;
+    companyName?: string;
+    manualLinks: string[];
+  }) {
+    setAnalysisState({
+      status: "loading",
+      message: "Collecting public sources and building a company workspace.",
+    });
+    try {
+      const response = await requestOnboarding({
+        website_url: nextWebsiteUrl,
+        company_name: companyName,
+        source_settings: sourceSettings,
+        manual_links: manualLinks,
+        documents: uploadedEvidenceToDocuments(uploadedEvidence),
+      });
+      const mapped = mapPhase1ToFrontend(response.analysis, response.profile);
+      const now = new Date().toISOString();
+      const nextId = `workspace-${slugify(response.profile.market || nextWebsiteUrl)}-${Date.now()}`;
+      const nextCompetitors = [] as CompetitorDrafts;
+      const nextWorkspace: CompanyWorkspace = {
+        version: 2,
+        id: nextId,
+        createdAt: now,
+        updatedAt: now,
+        websiteUrl: nextWebsiteUrl,
+        sourceSettings: response.source_settings,
+        sourceLedger: response.source_ledger,
+        competitorSuggestions: [],
+        selectedCompetitors: [],
+        context,
+        uploadedEvidence,
+        gapDrafts: mapped.gaps,
+        profile: mapped.profile,
+        jobToBeDone: mapped.jobToBeDone,
+        goals: mapped.goals.length ? mapped.goals : cloneDraft(initialGoals),
+        recommendation: mapped.recommendation,
+        strategicShifts: cloneDraft(strategicShifts),
+        competitors: nextCompetitors,
+        culturalDrivers: cloneDraft(culturalDrivers),
+        consumerStages: cloneDraft(consumerStages),
+        needStates: cloneDraft(needStates),
+      };
+
+      setWorkspaceHistory((current) => {
+        const next = upsertWorkspace(current, nextWorkspace);
+        persistWorkspaceHistory(next);
+        return next;
+      });
+      applyWorkspace(nextWorkspace);
+      setPage("fiveC");
+      setActiveFiveC("company");
+      setAnalysisState({
+        status: "ready",
+        message: `Created workspace for ${mapped.profile.market}. Review and save Company to suggest competitors.`,
+      });
+    } catch (error) {
+      setAnalysisState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Company onboarding failed.",
+      });
+    }
+  }
+
+  async function suggestCompetitorsOnce() {
+    if (!websiteUrl || competitorSuggestions.length > 0) return;
+    setAnalysisState({
+      status: "loading",
+      message: "Suggesting competitors from collected sources.",
+    });
+    try {
+      const suggestions = await requestCompetitorSuggestions({
+        profile,
+        website_url: websiteUrl,
+        source_settings: sourceSettings,
+        source_ledger: sourceLedger,
+      });
+      const nextCompetitors = suggestions.map((item) => ({
+        name: item.name,
+        selected: item.selected,
+        position: item.rationale,
+        purpose: `Suggested competitor with ${item.confidence}% confidence.`,
+        profit: item.source_links.length
+          ? `Source links: ${item.source_links.join(", ")}`
+          : "No source links were available for this suggestion.",
+      })) as CompetitorDrafts;
+      setCompetitorSuggestions(suggestions);
+      setCompetitorDrafts(nextCompetitors);
+      saveWorkspace("Company saved and competitors suggested.", {
+        competitorSuggestions: suggestions,
+        competitors: nextCompetitors,
+        selectedCompetitors: [],
+      });
+      setActiveFiveC("competition");
+      setAnalysisState({
+        status: "ready",
+        message: "Competitor suggestions are ready for selection.",
+      });
+    } catch (error) {
+      saveWorkspace("Company saved.");
+      setAnalysisState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Competitor suggestion failed.",
+      });
+    }
+  }
+
+  function saveCompanyAndSuggest() {
+    saveWorkspace("Company saved.");
+    void suggestCompetitorsOnce();
   }
 
   async function uploadEvidence(files: FileList | null) {
@@ -577,6 +921,13 @@ function App() {
             }
             isAnalyzing={analysisState.status === "loading"}
             analysisState={analysisState}
+            workspaceHistory={workspaceHistory}
+            activeWorkspaceId={activeWorkspaceId}
+            onSelectWorkspace={applyWorkspace}
+            websiteUrl={websiteUrl}
+            sourceSettings={sourceSettings}
+            setSourceSettings={setSourceSettings}
+            sourceLedger={sourceLedger}
             uploadedEvidence={uploadedEvidence}
             onUploadEvidence={uploadEvidence}
             onRemoveEvidence={(id) =>
@@ -594,7 +945,7 @@ function App() {
 
           <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto flex min-h-full w-full max-w-[1480px] flex-col px-5 py-5 md:px-8 lg:px-10">
-              {page !== "home" && (
+              {page !== "home" && page !== "addCompany" && (
                 <Header
                   page={page}
                   profile={profile}
@@ -603,7 +954,28 @@ function App() {
                 />
               )}
               <div id="gaia-export-area" className="flex-1 pb-10">
-                {page === "home" && <HomeView setPage={setPage} />}
+                {page === "home" && (
+                  <HomeView
+                    setPage={setPage}
+                    profile={profile}
+                  />
+                )}
+                {page === "addCompany" && (
+                  <AddCompanyView
+                    sourceSettings={sourceSettings}
+                    setSourceSettings={setSourceSettings}
+                    uploadedEvidence={uploadedEvidence}
+                    onUploadEvidence={uploadEvidence}
+                    onRemoveEvidence={(id) =>
+                      setUploadedEvidence((current) =>
+                        current.filter((item) => item.id !== id),
+                      )
+                    }
+                    onOnboard={onboardCompany}
+                    isAnalyzing={analysisState.status === "loading"}
+                    analysisState={analysisState}
+                  />
+                )}
                 {page === "iag" && (
                   <IagView
                     editMode={editMode}
@@ -634,6 +1006,7 @@ function App() {
                     needStates={needStateDrafts}
                     setNeedStates={setNeedStateDrafts}
                     onSave={() => saveWorkspace("5C edits saved.")}
+                    onSaveCompany={saveCompanyAndSuggest}
                     onGenerateJob={() => {
                       setJobToBeDone(strategicShiftDrafts.job);
                       announce(
@@ -641,11 +1014,15 @@ function App() {
                       );
                     }}
                     onReanalyze={reanalyze}
+                    sourceSettings={sourceSettings}
+                    setSourceSettings={setSourceSettings}
+                    sourceLedger={sourceLedger}
                   />
                 )}
                 {page === "sustainability" && (
                   <SustainabilityView
                     editMode={editMode}
+                    profile={profile}
                     goals={goals}
                     updateGoal={updateGoal}
                     removeGoal={(id) => {
@@ -691,6 +1068,13 @@ type SidebarProps = {
   onReanalyze: () => void;
   isAnalyzing: boolean;
   analysisState: AnalysisState;
+  workspaceHistory: CompanyWorkspace[];
+  activeWorkspaceId: string;
+  onSelectWorkspace: (workspace: CompanyWorkspace) => void;
+  websiteUrl: string;
+  sourceSettings: SourceSettings;
+  setSourceSettings: (settings: SourceSettings) => void;
+  sourceLedger: SourceLedgerEntry[];
   uploadedEvidence: UploadedEvidence[];
   onUploadEvidence: (files: FileList | null) => void;
   onRemoveEvidence: (id: string) => void;
@@ -710,6 +1094,13 @@ function Sidebar({
   onReanalyze,
   isAnalyzing,
   analysisState,
+  workspaceHistory,
+  activeWorkspaceId,
+  onSelectWorkspace,
+  websiteUrl,
+  sourceSettings,
+  setSourceSettings,
+  sourceLedger,
   uploadedEvidence,
   onUploadEvidence,
   onRemoveEvidence,
@@ -717,9 +1108,10 @@ function Sidebar({
   onGenerateGoals,
 }: SidebarProps) {
   const isHome = page === "home";
+  const isWorkspacePage = page !== "home" && page !== "addCompany";
 
   return (
-    <aside className="hidden h-full w-[290px] shrink-0 overflow-y-auto border-r border-border bg-sidebar px-5 py-5 md:block">
+    <aside className="scrollbar-hidden hidden h-full w-[290px] shrink-0 overflow-y-auto border-r border-border bg-sidebar px-5 py-5 md:block">
       <nav className="flex min-h-full flex-col gap-6">
         <div>
           <img
@@ -741,19 +1133,43 @@ function Sidebar({
             <Home className="size-4" />
             Home
           </button>
-          <button
-            type="button"
-            className={cn(
-              "rounded-md border border-border bg-muted/60 px-3 py-2 text-left text-sm font-semibold hover:bg-muted",
-              page !== "home" && "text-foreground",
-            )}
-            onClick={() => setPage("iag")}
-          >
-            Yoplait UK
-          </button>
+          <div className="space-y-2">
+            <p className="px-1 text-xs font-semibold uppercase text-muted-foreground">
+              Companies
+            </p>
+            <button
+              type="button"
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted",
+                page === "addCompany" && "bg-muted text-foreground",
+              )}
+              onClick={() => setPage("addCompany")}
+            >
+              <Plus className="size-4" />
+              Add company
+            </button>
+            {workspaceHistory.map((workspace) => (
+              <button
+                key={workspace.id}
+                type="button"
+                className={cn(
+                  "w-full rounded-md border border-border bg-muted/40 px-3 py-2 text-left text-sm font-semibold hover:bg-muted",
+                  page !== "addCompany" &&
+                    workspace.id === activeWorkspaceId &&
+                    "bg-muted text-foreground",
+                )}
+                onClick={() => onSelectWorkspace(workspace)}
+              >
+                <span className="block truncate">{workspace.profile.market}</span>
+                <span className="block truncate text-xs font-normal text-muted-foreground">
+                  {workspace.websiteUrl}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
 
-        {!isHome && (
+        {isWorkspacePage && (
           <>
             <Separator />
 
@@ -771,7 +1187,11 @@ function Sidebar({
                 </SelectTrigger>
                 <SelectContent>
                   {pageOptions
-                    .filter((option) => option.key !== "home")
+                    .filter(
+                      (option) =>
+                        option.key !== "home" &&
+                        option.key !== "addCompany",
+                    )
                     .map((option) => (
                       <SelectItem key={option.key} value={option.key}>
                         {option.label}
@@ -839,6 +1259,7 @@ function Sidebar({
 
         {(page === "iag" || page === "sustainability" || page === "fiveC") && (
           <div className="space-y-3">
+            <Separator />
             <div>
               <h2 className="text-sm font-semibold">
                 {page === "sustainability" ? "Reanalyze Goals" : "Reanalyze"}
@@ -853,6 +1274,11 @@ function Sidebar({
               aria-label="Additional Context"
               placeholder="Paste additional context..."
               className="min-h-[120px]"
+            />
+            <SourceSettingsControl
+              settings={sourceSettings}
+              onChange={setSourceSettings}
+              compact
             />
             <div className="space-y-2 rounded-md border border-border bg-card p-3">
               <input
@@ -921,6 +1347,7 @@ function Sidebar({
                 Live backend analysis applied.
               </p>
             )}
+            <SourceLedgerSummary ledger={sourceLedger} websiteUrl={websiteUrl} />
           </div>
         )}
 
@@ -1069,52 +1496,166 @@ const homeModules: Array<{
   },
 ];
 
-function HomeView({ setPage }: { setPage: (page: PageKey) => void }) {
+const sourceTypeLabels: Record<keyof SourceSettings["enabledSourceTypes"], string> = {
+  website: "Website",
+  manual_links: "Manual links",
+  search: "Search",
+  reddit: "Reddit",
+  youtube: "YouTube",
+  reviews: "Reviews",
+  social_links: "Social links",
+};
+
+function SourceSettingsControl({
+  settings,
+  onChange,
+  compact = false,
+}: {
+  settings: SourceSettings;
+  onChange: (settings: SourceSettings) => void;
+  compact?: boolean;
+}) {
+  const updateMaxSources = (value: string) => {
+    const maxSources = Number(value) as SourceSettings["maxSources"];
+    onChange({ ...settings, maxSources });
+  };
+  const updateSourceType = (
+    key: keyof SourceSettings["enabledSourceTypes"],
+    value: boolean,
+  ) => {
+    onChange({
+      ...settings,
+      enabledSourceTypes: {
+        ...settings.enabledSourceTypes,
+        [key]: value,
+      },
+    });
+  };
+
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-card p-3">
+      <div className="flex items-center justify-between gap-3">
+        <Label className="text-sm">Source depth</Label>
+        <Select
+          value={String(settings.maxSources)}
+          onValueChange={updateMaxSources}
+        >
+          <SelectTrigger className="w-[96px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="3">3</SelectItem>
+            <SelectItem value="5">5</SelectItem>
+            <SelectItem value="10">10</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div
+        className={cn(
+          "grid gap-2",
+          compact ? "grid-cols-1" : "sm:grid-cols-2",
+        )}
+      >
+        {(Object.keys(sourceTypeLabels) as Array<
+          keyof SourceSettings["enabledSourceTypes"]
+        >).map((key) => (
+          <label
+            key={key}
+            className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-2 text-xs"
+          >
+            <span>{sourceTypeLabels[key]}</span>
+            <Switch
+              checked={settings.enabledSourceTypes[key]}
+              onCheckedChange={(value) => updateSourceType(key, value)}
+            />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SourceLedgerSummary({
+  ledger,
+  websiteUrl,
+}: {
+  ledger: SourceLedgerEntry[];
+  websiteUrl: string;
+}) {
+  if (!ledger.length) {
+    return (
+      <p className="text-xs leading-5 text-muted-foreground">
+        No source ledger yet{websiteUrl ? ` for ${websiteUrl}` : ""}.
+      </p>
+    );
+  }
+
+  return (
+    <Accordion
+      type="single"
+      collapsible
+      className="rounded-md border border-border bg-card px-3"
+    >
+      <AccordionItem value="source-ledger" className="border-0">
+        <AccordionTrigger>Source ledger</AccordionTrigger>
+        <AccordionContent>
+          <div className="space-y-2">
+            {ledger.map((entry) => (
+              <div
+                key={`${entry.type}-${entry.url}`}
+                className="rounded-md bg-muted px-2 py-2 text-xs"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-semibold">
+                    {entry.title || entry.url}
+                  </span>
+                  <Badge
+                    variant={
+                      entry.status === "ok"
+                        ? "success"
+                        : entry.status === "error"
+                          ? "warning"
+                          : "secondary"
+                    }
+                  >
+                    {entry.status}
+                  </Badge>
+                </div>
+                <p className="mt-1 truncate text-muted-foreground">
+                  {entry.type} - {entry.url}
+                </p>
+                {entry.error && (
+                  <p className="mt-1 text-muted-foreground">{entry.error}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
+  );
+}
+
+function HomeView({
+  setPage,
+  profile,
+}: {
+  setPage: (page: PageKey) => void;
+  profile: typeof companyProfile;
+}) {
   return (
     <div className="flex flex-col gap-8">
-      <section className="grid gap-6 pt-2 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-stretch">
+      <section className="pt-2">
         <div>
-          <Badge variant="outline">Gaia workflow</Badge>
-          <h2 className="mt-4 max-w-4xl font-serif text-4xl font-semibold leading-[1.08] md:text-5xl">
+          <Badge variant="outline">Active workspace: {profile.market}</Badge>
+          <h2 className="mt-4 max-w-5xl font-serif text-4xl font-semibold leading-[1.08] md:text-5xl">
             Close the Gap Between Brand, Sustainability & Business Performance
           </h2>
           <p className="mt-5 max-w-3xl text-base leading-8 text-muted-foreground">
-            This is an AI guided strategy workspace for turning brand context,
-            5C research, and sustainability ambition into an executive-ready
-            intention-action gap analysis and set of recommendations. Work
-            through the modules in order, edit assumptions where needed, run
-            backend analysis when new evidence arrives, then export the summary
-            when the logic is ready.
+            Review the Company profile, select competitor suggestions, then run
+            the 5C and IAG summary from grounded public evidence.
           </p>
         </div>
-
-        <Card className="flex h-full flex-col">
-          <CardHeader>
-            <CardTitle>Start a diagnostic</CardTitle>
-            <CardDescription>
-              Begin with source analysis, then synthesize the strongest gap and
-              recommended action.
-            </CardDescription>
-          </CardHeader>
-          <CardFooter className="mt-auto flex-col items-stretch">
-            <Button
-              className="w-full justify-start"
-              variant="accent"
-              onClick={() => setPage("fiveC")}
-            >
-              Start with 5C
-              <ArrowRight data-icon="inline-end" />
-            </Button>
-            <Button
-              className="w-full justify-start"
-              variant="outline"
-              onClick={() => setPage("iag")}
-            >
-              View IAG summary
-              <ArrowRight data-icon="inline-end" />
-            </Button>
-          </CardFooter>
-        </Card>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-4">
@@ -1153,6 +1694,147 @@ function HomeView({ setPage }: { setPage: (page: PageKey) => void }) {
             </CardContent>
           </Card>
         ))}
+      </section>
+    </div>
+  );
+}
+
+function AddCompanyView({
+  sourceSettings,
+  setSourceSettings,
+  uploadedEvidence,
+  onUploadEvidence,
+  onRemoveEvidence,
+  onOnboard,
+  isAnalyzing,
+  analysisState,
+}: {
+  sourceSettings: SourceSettings;
+  setSourceSettings: (settings: SourceSettings) => void;
+  uploadedEvidence: UploadedEvidence[];
+  onUploadEvidence: (files: FileList | null) => void;
+  onRemoveEvidence: (id: string) => void;
+  onOnboard: (payload: {
+    websiteUrl: string;
+    companyName?: string;
+    manualLinks: string[];
+  }) => void;
+  isAnalyzing: boolean;
+  analysisState: AnalysisState;
+}) {
+  const [websiteInput, setWebsiteInput] = useState("");
+  const [companyNameInput, setCompanyNameInput] = useState("");
+  const [manualLinksInput, setManualLinksInput] = useState("");
+  const manualLinks = manualLinksInput
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return (
+    <div className="flex flex-col gap-6 pt-2">
+      <section>
+        <div>
+          <Badge variant="outline">Company onboarding</Badge>
+          <h2 className="mt-4 max-w-4xl font-serif text-4xl font-semibold leading-[1.08] md:text-5xl">
+            Add a Company Workspace
+          </h2>
+          <p className="mt-5 max-w-3xl text-base leading-8 text-muted-foreground">
+            Create a company workspace from public website evidence, review the
+            Company profile, then select competitor suggestions before the 5C
+            and IAG summary are rerun.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <Card className="flex flex-col">
+          <CardContent className="grid gap-4 p-6">
+            <Field label="Website URL">
+              <Input
+                value={websiteInput}
+                onChange={(event) => setWebsiteInput(event.target.value)}
+                placeholder="https://company.com"
+              />
+            </Field>
+            <Field label="Company name (optional)">
+              <Input
+                value={companyNameInput}
+                onChange={(event) => setCompanyNameInput(event.target.value)}
+                placeholder="Company or market name"
+              />
+            </Field>
+            <Field label="Manual links (optional)">
+              <Textarea
+                value={manualLinksInput}
+                onChange={(event) => setManualLinksInput(event.target.value)}
+                placeholder="One public URL per line"
+                className="min-h-[90px]"
+              />
+            </Field>
+            <SourceSettingsControl
+              settings={sourceSettings}
+              onChange={setSourceSettings}
+            />
+            <div className="space-y-2 rounded-md border border-border bg-card p-3">
+              <input
+                id="add-company-evidence-upload"
+                type="file"
+                multiple
+                accept=".txt,.md,.csv,.json,.docx,.pdf"
+                className="sr-only"
+                onChange={(event) => {
+                  onUploadEvidence(event.target.files);
+                  event.target.value = "";
+                }}
+              />
+              <Button asChild className="w-full justify-start" variant="outline">
+                <label htmlFor="add-company-evidence-upload">
+                  <Upload />
+                  Upload evidence
+                </label>
+              </Button>
+              {uploadedEvidence.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1 text-xs"
+                >
+                  <span className="truncate">{item.source}</span>
+                  <Button
+                    aria-label={`Remove ${item.source}`}
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    onClick={() => onRemoveEvidence(item.id)}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+          <CardFooter className="mt-auto flex-col items-stretch">
+            <Button
+              className="w-full justify-start"
+              variant="accent"
+              disabled={!websiteInput.trim() || isAnalyzing}
+              onClick={() =>
+                onOnboard({
+                  websiteUrl: websiteInput,
+                  companyName: companyNameInput || undefined,
+                  manualLinks,
+                })
+              }
+            >
+              {isAnalyzing ? "Collecting..." : "Create workspace"}
+              <ArrowRight data-icon="inline-end" />
+            </Button>
+            {analysisState.status === "error" && (
+              <p className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive">
+                {analysisState.message}
+              </p>
+            )}
+          </CardFooter>
+        </Card>
       </section>
     </div>
   );
@@ -1411,6 +2093,26 @@ function EvidenceAccordion({ evidence }: { evidence: EvidenceBlock[] }) {
                   title="Supporting Evidence"
                   items={item.sources}
                 />
+                {item.links?.length ? (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold uppercase text-muted-foreground">
+                      Citation Links
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      {item.links.map((link) => (
+                        <a
+                          key={link.url}
+                          href={link.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block truncate rounded-md bg-muted px-2 py-1 text-sm text-accent hover:underline"
+                        >
+                          {link.label || link.url}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <EvidenceList
                   title="Quantitative Signals"
                   items={item.signals}
@@ -1462,8 +2164,12 @@ function FiveCView({
   needStates,
   setNeedStates,
   onSave,
+  onSaveCompany,
   onGenerateJob,
   onReanalyze,
+  sourceSettings,
+  setSourceSettings,
+  sourceLedger,
 }: {
   editMode: boolean;
   activeFiveC: FiveCTab;
@@ -1485,8 +2191,12 @@ function FiveCView({
   needStates: NeedStateDrafts;
   setNeedStates: React.Dispatch<React.SetStateAction<NeedStateDrafts>>;
   onSave: () => void;
+  onSaveCompany: () => void;
   onGenerateJob: () => void;
   onReanalyze: (label: string) => void;
+  sourceSettings: SourceSettings;
+  setSourceSettings: (settings: SourceSettings) => void;
+  sourceLedger: SourceLedgerEntry[];
 }) {
   return (
     <Tabs
@@ -1522,7 +2232,7 @@ function FiveCView({
           editMode={editMode}
           profile={profile}
           setProfile={setProfile}
-          onSave={onSave}
+          onSave={onSaveCompany}
         />
       </TabsContent>
       <TabsContent value="competition">
@@ -1541,6 +2251,9 @@ function FiveCView({
           setCulturalDrivers={setCulturalDrivers}
           onSave={onSave}
           onReanalyze={() => onReanalyze("the cultural opportunity")}
+          sourceSettings={sourceSettings}
+          setSourceSettings={setSourceSettings}
+          sourceLedger={sourceLedger}
         />
       </TabsContent>
       <TabsContent value="consumer">
@@ -1550,6 +2263,9 @@ function FiveCView({
           setConsumerStages={setConsumerStages}
           onSave={onSave}
           onReanalyze={() => onReanalyze("the consumer opportunity")}
+          sourceSettings={sourceSettings}
+          setSourceSettings={setSourceSettings}
+          sourceLedger={sourceLedger}
         />
       </TabsContent>
       <TabsContent value="category">
@@ -1896,8 +2612,34 @@ function CompetitionPanel({
   onReanalyze: () => void;
 }) {
   const [selectedCompetitor, setSelectedCompetitor] = useState(
-    competitors[0].name,
+    competitors[0]?.name ?? "",
   );
+  useEffect(() => {
+    if (!competitors.length) {
+      if (selectedCompetitor) setSelectedCompetitor("");
+      return;
+    }
+    if (!competitors.some((item) => item.name === selectedCompetitor)) {
+      setSelectedCompetitor(competitors[0].name);
+    }
+  }, [competitors, selectedCompetitor]);
+
+  if (!competitors.length) {
+    return (
+      <div className="space-y-5 rounded-md border border-border bg-panel p-5">
+        <h3 className="text-xl font-semibold">Competitor suggestions pending</h3>
+        <p className="text-sm leading-7 text-muted-foreground">
+          Review the Company tab, make any edits, then save it. Gaia will
+          suggest competitors once for this workspace and bring them here for
+          selection before the 5C summary.
+        </p>
+        <Button variant="secondary" onClick={onReanalyze}>
+          <RefreshCw />
+          Reanalyze competition
+        </Button>
+      </div>
+    );
+  }
   const competitor =
     competitors.find((item) => item.name === selectedCompetitor) ||
     competitors[0];
@@ -2011,6 +2753,9 @@ function CulturePanel({
   setCulturalDrivers,
   onSave,
   onReanalyze,
+  sourceSettings,
+  setSourceSettings,
+  sourceLedger,
 }: {
   editMode: boolean;
   culturalDrivers: CulturalDriverDrafts;
@@ -2019,8 +2764,16 @@ function CulturePanel({
   >;
   onSave: () => void;
   onReanalyze: () => void;
+  sourceSettings: SourceSettings;
+  setSourceSettings: (settings: SourceSettings) => void;
+  sourceLedger: SourceLedgerEntry[];
 }) {
   const [driver, setDriver] = useState(culturalDrivers[0].title);
+  useEffect(() => {
+    if (!culturalDrivers.some((item) => item.title === driver)) {
+      setDriver(culturalDrivers[0]?.title ?? "");
+    }
+  }, [culturalDrivers, driver]);
   const active =
     culturalDrivers.find((item) => item.title === driver) || culturalDrivers[0];
   const updateDriver = (
@@ -2155,6 +2908,9 @@ function CulturePanel({
           .filter((item) => item.selected)
           .map((item) => item.title)}
         onReanalyze={onReanalyze}
+        sourceSettings={sourceSettings}
+        setSourceSettings={setSourceSettings}
+        sourceLedger={sourceLedger}
       />
       <div className="sr-only">{active.title}</div>
     </div>
@@ -2167,14 +2923,25 @@ function ConsumerPanel({
   setConsumerStages,
   onSave,
   onReanalyze,
+  sourceSettings,
+  setSourceSettings,
+  sourceLedger,
 }: {
   editMode: boolean;
   consumerStages: ConsumerStageDrafts;
   setConsumerStages: React.Dispatch<React.SetStateAction<ConsumerStageDrafts>>;
   onSave: () => void;
   onReanalyze: () => void;
+  sourceSettings: SourceSettings;
+  setSourceSettings: (settings: SourceSettings) => void;
+  sourceLedger: SourceLedgerEntry[];
 }) {
   const [stage, setStage] = useState("Discovery");
+  useEffect(() => {
+    if (!consumerStages.some((item) => item.stage === stage)) {
+      setStage(consumerStages[0]?.stage ?? "");
+    }
+  }, [consumerStages, stage]);
   const updateStage = (
     stage: string,
     patch: Partial<ConsumerStageDrafts[number]>,
@@ -2307,6 +3074,9 @@ function ConsumerPanel({
           .filter((item) => item.selected)
           .map((item) => `Stage: ${item.stage}`)}
         onReanalyze={onReanalyze}
+        sourceSettings={sourceSettings}
+        setSourceSettings={setSourceSettings}
+        sourceLedger={sourceLedger}
       />
     </div>
   );
@@ -2326,6 +3096,11 @@ function CategoryPanel({
   onReanalyze: () => void;
 }) {
   const [need, setNeed] = useState(needStates[0].name);
+  useEffect(() => {
+    if (!needStates.some((item) => item.name === need)) {
+      setNeed(needStates[0]?.name ?? "");
+    }
+  }, [needStates, need]);
   const activeNeed =
     needStates.find((item) => item.name === need) || needStates[0];
   const chartData = needStates.map((item) => ({
@@ -2469,6 +3244,7 @@ function CategoryPanel({
 
 function SustainabilityView({
   editMode,
+  profile,
   goals,
   updateGoal,
   removeGoal,
@@ -2476,6 +3252,7 @@ function SustainabilityView({
   onSave,
 }: {
   editMode: boolean;
+  profile: typeof companyProfile;
   goals: SustainabilityGoal[];
   updateGoal: (id: string, patch: Partial<SustainabilityGoal>) => void;
   removeGoal: (id: string) => void;
@@ -2546,7 +3323,7 @@ function SustainabilityView({
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <h3 className="font-serif text-3xl font-semibold">
-                Sustainability: Yoplait
+                Sustainability: {profile.brand || profile.market}
               </h3>
               <p className="text-sm text-muted-foreground">
                 Reporting Year: 2026
@@ -2988,10 +3765,16 @@ function SummarizePanel({
   title,
   items,
   onReanalyze,
+  sourceSettings,
+  setSourceSettings,
+  sourceLedger,
 }: {
   title: string;
   items: string[];
   onReanalyze: () => void;
+  sourceSettings?: SourceSettings;
+  setSourceSettings?: (settings: SourceSettings) => void;
+  sourceLedger?: SourceLedgerEntry[];
 }) {
   return (
     <div className="rounded-md border border-border bg-panel p-5">
@@ -3010,6 +3793,15 @@ function SummarizePanel({
           </li>
         ))}
       </ul>
+      {sourceSettings && setSourceSettings && (
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_0.9fr]">
+          <SourceSettingsControl
+            settings={sourceSettings}
+            onChange={setSourceSettings}
+          />
+          <SourceLedgerSummary ledger={sourceLedger ?? []} websiteUrl="" />
+        </div>
+      )}
       <Button className="mt-4" variant="secondary" onClick={onReanalyze}>
         <RefreshCw />
         Reanalyze
@@ -3103,6 +3895,14 @@ function titleCase(value: string) {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
 }
 
 function isSelectedFiveC(key: FiveCTab) {

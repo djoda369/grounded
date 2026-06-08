@@ -150,6 +150,15 @@ strong {
   animation: accordion-up 0.2s ease-out;
 }
 
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 @media print {
   body {
     background: white;
