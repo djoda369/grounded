@@ -35,6 +35,47 @@ PRIORITY_PATH_TERMS = (
     "values",
 )
 
+SITEMAP_PATHS = (
+    "/sitemap.xml",
+    "/sitemap_index.xml",
+    "/sitemap-index.xml",
+)
+
+COMMON_PRIORITY_PATHS = (
+    "/about",
+    "/about-us",
+    "/purpose",
+    "/mission",
+    "/impact",
+    "/sustainability",
+    "/esg",
+    "/responsibility",
+    "/products",
+    "/brands",
+    "/our-story",
+    "/values",
+)
+
+LOW_QUALITY_TITLE_TERMS = (
+    "access denied",
+    "captcha",
+    "checking your browser",
+    "hang tight",
+    "just a moment",
+    "one more step",
+    "routing to checkout",
+    "temporarily unavailable",
+)
+
+LOW_QUALITY_TEXT_TERMS = (
+    "enable javascript",
+    "checking your browser",
+    "please verify you are human",
+    "routing to checkout",
+    "temporarily unavailable",
+    "we should be up and moving shortly",
+)
+
 SOCIAL_DOMAINS = {
     "facebook.com",
     "instagram.com",
@@ -257,21 +298,33 @@ def collect_sources(
                 "error": f"Unsupported content type: {result.content_type}",
             }
         extracted = extract_html(result.body)
+        title = extracted["title"]
         text = extracted["text"]
         if len(text) < 80:
             return {
                 "url": canonical,
                 "type": source_type,
-                "title": extracted["title"],
+                "title": title,
                 "fetched_at": timestamp(),
                 "status": "skipped",
                 "excerpt": text,
                 "error": "No usable page text found.",
             }
+        quality_issue = low_quality_reason(title, text)
+        if quality_issue:
+            return {
+                "url": canonical,
+                "type": source_type,
+                "title": title,
+                "fetched_at": timestamp(),
+                "status": "skipped",
+                "excerpt": text[:500],
+                "error": quality_issue,
+            }
         return {
             "url": canonical,
             "type": source_type,
-            "title": extracted["title"] or canonical,
+            "title": title or canonical,
             "fetched_at": timestamp(),
             "status": "ok",
             "excerpt": text[:5000],
@@ -279,30 +332,72 @@ def collect_sources(
             "links": extracted["links"],
         }
 
+    def add_link_candidates(
+        entry: dict[str, Any] | None,
+        base_url: str,
+        crawl_candidates: list[tuple[int, str]],
+        social_candidates: list[str],
+    ) -> None:
+        if not entry or entry.get("status") != "ok":
+            return
+        for href, label in entry.get("links", []):
+            absolute = canonicalize_url(urljoin(base_url, href))
+            parsed = urlparse(absolute)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                continue
+            host = parsed.hostname or ""
+            if same_domain(host, root_host):
+                crawl_candidates.append((priority_score(absolute, label), absolute))
+            elif is_social_or_media(host):
+                social_candidates.append(absolute)
+
+    def sitemap_candidates() -> list[str]:
+        candidates: list[str] = []
+        parsed_root = urlparse(root_url)
+        origin = f"{parsed_root.scheme}://{parsed_root.netloc}"
+        for path in SITEMAP_PATHS:
+            sitemap_url = canonicalize_url(urljoin(origin, path))
+            try:
+                result = fetch(sitemap_url)
+            except Exception:
+                continue
+            if result.status >= 400:
+                continue
+            candidates.extend(extract_sitemap_urls(result.body, root_host))
+        return candidates
+
     if enabled["website"]:
         root_entry = fetch_entry(root_url, "website")
         if root_entry:
             ledger.append(public_entry(root_entry))
         crawl_candidates: list[tuple[int, str]] = []
         social_candidates: list[str] = []
-        if root_entry and root_entry.get("status") == "ok":
-            for href, label in root_entry.get("links", []):
-                absolute = canonicalize_url(urljoin(root_url, href))
-                parsed = urlparse(absolute)
-                if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                    continue
-                host = parsed.hostname or ""
-                if same_domain(host, root_host):
-                    crawl_candidates.append((priority_score(absolute, label), absolute))
-                elif is_social_or_media(host):
-                    social_candidates.append(absolute)
+        add_link_candidates(root_entry, root_url, crawl_candidates, social_candidates)
+        for url in sitemap_candidates():
+            crawl_candidates.append((priority_score(url, ""), url))
+        for path in COMMON_PRIORITY_PATHS:
+            crawl_candidates.append((priority_score(path, ""), urljoin(root_url, path)))
 
-        for _, url in sorted(crawl_candidates):
+        attempts = 0
+        queue = sorted((score, canonicalize_url(url)) for score, url in crawl_candidates)
+        queued: set[str] = set()
+        while queue and ok_source_count(ledger) < max_sources and attempts < max_sources * 8:
+            _, url = queue.pop(0)
+            canonical = canonicalize_url(url)
+            if canonical in queued:
+                continue
+            queued.add(canonical)
+            attempts += 1
             if ok_source_count(ledger) >= max_sources:
                 break
-            entry = fetch_entry(url, "website")
+            entry = fetch_entry(canonical, "website")
             if entry:
                 ledger.append(public_entry(entry))
+                nested_candidates: list[tuple[int, str]] = []
+                add_link_candidates(entry, canonical, nested_candidates, social_candidates)
+                for item in nested_candidates:
+                    queue.append(item)
+                queue.sort(key=lambda item: item[0])
 
         if enabled["social_links"]:
             for url in dedupe_urls(social_candidates)[: max_sources]:
@@ -373,6 +468,29 @@ def infer_external_type(url: str) -> str:
     if "reddit.com" in host:
         return "reddit"
     return "social_links"
+
+
+def low_quality_reason(title: str, text: str) -> str:
+    combined_title = title.lower()
+    combined_text = text.lower()[:1500]
+    if any(term in combined_title for term in LOW_QUALITY_TITLE_TERMS):
+        return "Low-quality blocker, queue, or splash page detected."
+    if any(term in combined_text for term in LOW_QUALITY_TEXT_TERMS):
+        return "Low-quality blocker, queue, or splash page detected."
+    return ""
+
+
+def extract_sitemap_urls(xml: str, root_host: str) -> list[str]:
+    urls = re.findall(r"<loc>\s*([^<]+)\s*</loc>", xml, flags=re.IGNORECASE)
+    output: list[str] = []
+    for url in urls:
+        canonical = canonicalize_url(url)
+        parsed = urlparse(canonical)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            continue
+        if same_domain(parsed.hostname, root_host):
+            output.append(canonical)
+    return dedupe_urls(output)
 
 
 def priority_score(url: str, label: str) -> int:
@@ -446,7 +564,7 @@ def ledger_to_documents(ledger: list[dict[str, Any]]) -> list[dict[str, str]]:
 def infer_company_name(website_url: str, ledger: list[dict[str, Any]]) -> str:
     for entry in ledger:
         title = str(entry.get("title") or "").strip()
-        if title:
+        if title and not low_quality_reason(title, str(entry.get("excerpt") or "")):
             return re.split(r"\s+[|-]\s+|:", title, maxsplit=1)[0].strip()[:80] or title[:80]
     host = (urlparse(website_url).hostname or "Company").removeprefix("www.")
     return host.split(".")[0].replace("-", " ").title()

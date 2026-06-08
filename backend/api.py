@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import sys
 import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,6 +15,10 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from core.phase1 import Phase1Analyzer
+from core.phase1.ai_synthesis import (
+    synthesize_competitor_suggestions,
+    synthesize_workspace_draft,
+)
 from core.phase1.schema import to_plain
 from core.phase1.source_collector import (
     collect_sources,
@@ -26,6 +31,24 @@ from core.phase1.source_collector import (
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
+
+
+def load_local_env() -> None:
+    env_path = ROOT_DIR / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_local_env()
 
 
 class Phase1APIHandler(BaseHTTPRequestHandler):
@@ -147,11 +170,20 @@ def onboard_payload(payload: dict[str, Any], analyzer: Phase1Analyzer | None = N
     analysis = analyze_documents_payload(documents, company_name, analyzer or Phase1Analyzer())
     plain_analysis = to_plain(analysis)
     profile = build_company_profile(company_name, website_url, plain_analysis, source_ledger)
+    synthesis = synthesize_workspace_draft(
+        company_name=company_name,
+        website_url=website_url,
+        profile=profile,
+        analysis=plain_analysis,
+        source_ledger=source_ledger,
+        documents=documents,
+    )
     return {
         "profile": profile,
         "source_ledger": source_ledger,
         "analysis": plain_analysis,
         "source_settings": source_settings,
+        **synthesis,
     }
 
 
@@ -164,7 +196,12 @@ def suggest_competitors_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(source_ledger, list):
         source_ledger = []
     suggestions = suggest_competitors(profile, website_url, source_ledger)
-    return {"suggestions": suggestions}
+    return synthesize_competitor_suggestions(
+        company_profile=profile,
+        website_url=website_url,
+        source_ledger=source_ledger,
+        fallback_suggestions=suggestions,
+    )
 
 
 def build_company_profile(

@@ -107,6 +107,7 @@ import {
   buildBaselineEvidenceText,
   buildPhase1Payload,
   fileToUploadedEvidence,
+  mapOnboardingToFrontend,
   mapPhase1ToFrontend,
   requestCompetitorSuggestions,
   requestOnboarding,
@@ -277,6 +278,9 @@ function restoreWorkspaceRecord(value: unknown): CompanyWorkspace {
   if (!isRecord(value)) return createSeedWorkspace();
   const fallback = createSeedWorkspace();
   const profile = restoreProfile(value.profile);
+  const sourceLedger = restoreArray(value.sourceLedger, []) as SourceLedgerEntry[];
+  const shouldClearStaticContent =
+    !isYoplaitProfile(profile) && containsYoplaitContent(value);
   return {
     ...fallback,
     id: typeof value.id === "string" ? value.id : fallback.id,
@@ -284,21 +288,39 @@ function restoreWorkspaceRecord(value: unknown): CompanyWorkspace {
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : fallback.updatedAt,
     websiteUrl: typeof value.websiteUrl === "string" ? value.websiteUrl : fallback.websiteUrl,
     sourceSettings: restoreSourceSettings(value.sourceSettings),
-    sourceLedger: restoreArray(value.sourceLedger, []) as SourceLedgerEntry[],
+    sourceLedger,
     competitorSuggestions: restoreArray(value.competitorSuggestions, []) as CompetitorSuggestion[],
     selectedCompetitors: restoreArray(value.selectedCompetitors, []),
     context: typeof value.context === "string" ? value.context : "",
     uploadedEvidence: restoreArray(value.uploadedEvidence, []),
-    gapDrafts: restoreGaps(value.gapDrafts),
+    gapDrafts: shouldClearStaticContent
+      ? evidenceRequiredGaps(profile.market)
+      : restoreGaps(value.gapDrafts),
     profile,
-    jobToBeDone: typeof value.jobToBeDone === "string" ? value.jobToBeDone : strategicShifts.job,
-    goals: restoreArray(value.goals, initialGoals),
-    recommendation: restoreRecommendation(value.recommendation),
-    strategicShifts: restoreStrategicShifts(value.strategicShifts),
-    competitors: restoreArray(value.competitors, competitors) as CompetitorDrafts,
-    culturalDrivers: restoreArray(value.culturalDrivers, culturalDrivers) as CulturalDriverDrafts,
-    consumerStages: restoreArray(value.consumerStages, consumerStages) as ConsumerStageDrafts,
-    needStates: restoreArray(value.needStates, needStates) as NeedStateDrafts,
+    jobToBeDone: shouldClearStaticContent
+      ? "Rerun onboarding with AI synthesis to define the source-backed job to be done."
+      : typeof value.jobToBeDone === "string"
+        ? value.jobToBeDone
+        : strategicShifts.job,
+    goals: shouldClearStaticContent ? [] : restoreArray(value.goals, initialGoals),
+    recommendation: shouldClearStaticContent
+      ? evidenceRequiredRecommendation(profile.market)
+      : restoreRecommendation(value.recommendation),
+    strategicShifts: shouldClearStaticContent
+      ? evidenceRequiredStrategicShifts(profile.market)
+      : restoreStrategicShifts(value.strategicShifts),
+    competitors: shouldClearStaticContent
+      ? ([] as CompetitorDrafts)
+      : (restoreArray(value.competitors, competitors) as CompetitorDrafts),
+    culturalDrivers: shouldClearStaticContent
+      ? evidenceRequiredCulturalDrivers()
+      : (restoreArray(value.culturalDrivers, culturalDrivers) as CulturalDriverDrafts),
+    consumerStages: shouldClearStaticContent
+      ? evidenceRequiredConsumerStages()
+      : (restoreArray(value.consumerStages, consumerStages) as ConsumerStageDrafts),
+    needStates: shouldClearStaticContent
+      ? evidenceRequiredNeedStates()
+      : (restoreArray(value.needStates, needStates) as NeedStateDrafts),
   };
 }
 
@@ -322,6 +344,130 @@ function restoreSourceSettings(value: unknown): SourceSettings {
       social_links: typeof enabled.social_links === "boolean" ? enabled.social_links : true,
     },
   };
+}
+
+function isYoplaitProfile(profile: CompanyProfileDraft) {
+  return `${profile.market} ${profile.brand}`.toLowerCase().includes("yoplait");
+}
+
+function containsYoplaitContent(value: unknown) {
+  if (!isRecord(value)) return false;
+  const sections = {
+    strategicShifts: value.strategicShifts,
+    competitors: value.competitors,
+    culturalDrivers: value.culturalDrivers,
+    consumerStages: value.consumerStages,
+    needStates: value.needStates,
+    goals: value.goals,
+  };
+  return JSON.stringify(sections).toLowerCase().includes("yoplait");
+}
+
+function evidenceRequiredGaps(companyName: string) {
+  return Object.fromEntries(
+    fiveCTabs.map(({ key, label }) => [
+      key,
+      {
+        key,
+        label,
+        type: "Strategic",
+        importance: "Medium",
+        confidence: 35,
+        explanation: `${companyName} needs fresh source-backed onboarding before this module can be scored reliably.`,
+        nextSteps: [
+          "Rerun onboarding with the company website and source links.",
+          "Review the source ledger before presenting the workspace.",
+        ],
+        evidence: [
+          {
+            title: "Evidence Required",
+            summary:
+              "This workspace had static placeholder content removed and needs fresh evidence synthesis.",
+            facts: ["No source-backed evidence is attached to this restored section."],
+            sources: ["Workspace migration"],
+            signals: ["Confidence is limited until onboarding is rerun."],
+            implications: ["Do not present this module until source evidence is collected."],
+          },
+        ],
+      },
+    ]),
+  ) as Record<FiveCTab, GapInsight>;
+}
+
+function evidenceRequiredRecommendation(companyName: string): RecommendationDraft {
+  return {
+    ...recommendation,
+    title: "Evidence-Grounded Activation Sprint",
+    bestFor: `${companyName} leadership, strategy, and sustainability teams.`,
+    headline: "Fresh source-backed onboarding is required before recommendation.",
+    overview:
+      "Static placeholder content was removed from this workspace. Rerun onboarding to generate an evidence-backed recommendation.",
+    outcomes: [
+      "Collect stronger public source evidence.",
+      "Rerun AI synthesis.",
+      "Review citations before client use.",
+    ],
+  };
+}
+
+function evidenceRequiredStrategicShifts(_companyName: string): StrategicShiftDraft {
+  return {
+    competition: {
+      from: "Competitive evidence is not yet synthesized for this workspace.",
+      to: ["Rerun onboarding to generate source-backed competitive shifts."],
+    },
+    culture: {
+      from: "Cultural evidence is not yet synthesized for this workspace.",
+      to: "Rerun onboarding to generate source-backed cultural shifts.",
+    },
+    consumer: {
+      from: "Consumer evidence is not yet synthesized for this workspace.",
+      to: "Rerun onboarding to generate source-backed consumer shifts.",
+    },
+    category: {
+      from: "Category evidence is not yet synthesized for this workspace.",
+      to: "Rerun onboarding to generate source-backed category shifts.",
+    },
+    job: "Rerun onboarding to define the source-backed job to be done.",
+  };
+}
+
+function evidenceRequiredCulturalDrivers(): CulturalDriverDrafts {
+  return [
+    {
+      title: "Evidence required",
+      selected: false,
+      confidence: 35,
+      observation: "Cultural drivers require fresh source-backed onboarding.",
+      tension: "No reliable source-backed tension is available yet.",
+      people: "Audience implications require stronger evidence.",
+      implication: "Rerun onboarding before using this module.",
+      sources: ["Workspace migration"],
+    },
+  ];
+}
+
+function evidenceRequiredConsumerStages(): ConsumerStageDrafts {
+  return [
+    {
+      stage: "Evaluation",
+      selected: false,
+      definition: "Consumer stages require fresh source-backed onboarding.",
+      barrier: "No reliable source-backed barrier is available yet.",
+      reviews: ["No review evidence was collected."],
+    },
+  ];
+}
+
+function evidenceRequiredNeedStates(): NeedStateDrafts {
+  return [
+    {
+      name: "Evidence required",
+      selected: false,
+      score: 35,
+      description: "Need states require fresh source-backed onboarding.",
+    },
+  ];
 }
 
 function upsertWorkspace(
@@ -643,6 +789,8 @@ function App() {
     });
     try {
       let mapped;
+      let workspaceDraft: ReturnType<typeof mapOnboardingToFrontend> | null =
+        null;
       if (sourceLedger.length > 0 && websiteUrl) {
         const response = await requestOnboarding({
           website_url: websiteUrl,
@@ -654,7 +802,8 @@ function App() {
           documents: uploadedEvidenceToDocuments(uploadedEvidence),
         });
         setSourceLedger(response.source_ledger);
-        mapped = mapPhase1ToFrontend(response.analysis, profile);
+        workspaceDraft = mapOnboardingToFrontend(response);
+        mapped = workspaceDraft;
       } else {
         const fallbackText = buildBaselineEvidenceText(
           profile,
@@ -676,8 +825,13 @@ function App() {
       setProfile(mapped.profile);
       setJobToBeDone(mapped.jobToBeDone);
       setRec(mapped.recommendation);
-      if (mapped.goals.length) {
-        setGoals(mapped.goals);
+      setGoals(mapped.goals);
+      if (workspaceDraft) {
+        setStrategicShiftDrafts(workspaceDraft.strategicShifts);
+        setCompetitorDrafts(workspaceDraft.competitors);
+        setCulturalDriverDrafts(workspaceDraft.culturalDrivers);
+        setConsumerStageDrafts(workspaceDraft.consumerStages);
+        setNeedStateDrafts(workspaceDraft.needStates);
       }
       setPage("iag");
       setActiveGap("summary");
@@ -717,10 +871,9 @@ function App() {
         manual_links: manualLinks,
         documents: uploadedEvidenceToDocuments(uploadedEvidence),
       });
-      const mapped = mapPhase1ToFrontend(response.analysis, response.profile);
+      const mapped = mapOnboardingToFrontend(response);
       const now = new Date().toISOString();
       const nextId = `workspace-${slugify(response.profile.market || nextWebsiteUrl)}-${Date.now()}`;
-      const nextCompetitors = [] as CompetitorDrafts;
       const nextWorkspace: CompanyWorkspace = {
         version: 2,
         id: nextId,
@@ -736,13 +889,13 @@ function App() {
         gapDrafts: mapped.gaps,
         profile: mapped.profile,
         jobToBeDone: mapped.jobToBeDone,
-        goals: mapped.goals.length ? mapped.goals : cloneDraft(initialGoals),
+        goals: mapped.goals,
         recommendation: mapped.recommendation,
-        strategicShifts: cloneDraft(strategicShifts),
-        competitors: nextCompetitors,
-        culturalDrivers: cloneDraft(culturalDrivers),
-        consumerStages: cloneDraft(consumerStages),
-        needStates: cloneDraft(needStates),
+        strategicShifts: mapped.strategicShifts,
+        competitors: mapped.competitors,
+        culturalDrivers: mapped.culturalDrivers,
+        consumerStages: mapped.consumerStages,
+        needStates: mapped.needStates,
       };
 
       setWorkspaceHistory((current) => {
@@ -755,7 +908,15 @@ function App() {
       setActiveFiveC("company");
       setAnalysisState({
         status: "ready",
-        message: `Created workspace for ${mapped.profile.market}. Review and save Company to suggest competitors.`,
+        message: [
+          `Created workspace for ${mapped.profile.market}. Review and save Company to suggest competitors.`,
+          response.synthesis_status && response.synthesis_status !== "ai_generated"
+            ? `Synthesis status: ${response.synthesis_status}.`
+            : "",
+          ...(response.warnings ?? []),
+        ]
+          .filter(Boolean)
+          .join(" "),
       });
     } catch (error) {
       setAnalysisState({

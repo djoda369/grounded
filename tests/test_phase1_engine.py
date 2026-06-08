@@ -1,5 +1,6 @@
 import json
 import base64
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,7 @@ from core.phase1.source_collector import (
     extract_html,
     validate_public_website_url,
 )
+from core.phase1 import ai_synthesis
 
 
 def fake_fetcher(pages):
@@ -184,6 +186,46 @@ class Phase1EngineTest(unittest.TestCase):
         self.assertGreaterEqual(len(skipped), 3)
         self.assertTrue(all(entry.get("error") for entry in skipped))
 
+    def test_source_collection_skips_blocker_pages(self):
+        blocker_copy = " ".join(["Sit tight we should be up and moving shortly routing to checkout."] * 12)
+        ledger = collect_sources(
+            "https://acme.test/",
+            {"maxSources": 3, "enabledSourceTypes": {"website": True}},
+            fetcher=fake_fetcher(
+                {
+                    "https://acme.test/": (
+                        f"<title>Hang Tight! Routing to checkout...</title><p>{blocker_copy}</p>"
+                    )
+                }
+            ),
+        )
+
+        root = next(entry for entry in ledger if entry["url"] == "https://acme.test/")
+        self.assertEqual(root["status"], "skipped")
+        self.assertIn("Low-quality", root["error"])
+
+    def test_source_collection_uses_sitemap_candidates(self):
+        long_copy = " ".join(["Acme purpose sustainability mission impact products."] * 20)
+        pages = {
+            "https://acme.test/": f"<title>Acme</title><p>{long_copy}</p>",
+            "https://acme.test/sitemap.xml": """
+                <urlset>
+                    <url><loc>https://acme.test/sustainability</loc></url>
+                    <url><loc>https://other.test/sustainability</loc></url>
+                </urlset>
+            """,
+            "https://acme.test/sustainability": f"<title>Acme Sustainability</title><p>{long_copy}</p>",
+        }
+
+        ledger = collect_sources(
+            "https://acme.test/",
+            {"maxSources": 2, "enabledSourceTypes": {"website": True}},
+            fetcher=fake_fetcher(pages),
+        )
+
+        ok_urls = [entry["url"] for entry in ledger if entry["status"] == "ok"]
+        self.assertIn("https://acme.test/sustainability", ok_urls)
+
     def test_source_collection_applies_limit_across_social_links(self):
         long_copy = " ".join(["Acme sustainability purpose and products."] * 20)
         pages = {
@@ -226,6 +268,7 @@ class Phase1EngineTest(unittest.TestCase):
         )
 
         original_collect = __import__("backend.api", fromlist=["collect_sources"]).collect_sources
+        old_key = os.environ.pop("OPENAI_API_KEY", None)
         try:
             import backend.api as api
 
@@ -243,10 +286,61 @@ class Phase1EngineTest(unittest.TestCase):
             result = onboard_payload({"website_url": "https://acme.test/", "source_settings": {"maxSources": 3}})
         finally:
             api.collect_sources = original_collect
+            if old_key is not None:
+                os.environ["OPENAI_API_KEY"] = old_key
 
         self.assertEqual(result["profile"]["market"], "Acme Dairy")
         self.assertEqual(result["source_ledger"][0]["status"], "ok")
         self.assertIn("summary", result["analysis"]["iag"])
+        self.assertIn("workspace_draft", result)
+        self.assertEqual(result["synthesis_status"], "fallback_no_key")
+        self.assertNotIn("Yoplait", json.dumps(result["workspace_draft"]))
+
+    def test_workspace_synthesis_uses_mocked_openai_response(self):
+        old_key = os.environ.get("OPENAI_API_KEY")
+        old_post = ai_synthesis.post_openai_response
+        try:
+            os.environ["OPENAI_API_KEY"] = "test-key"
+            fallback = ai_synthesis.fallback_workspace_draft(
+                "Acme Dairy",
+                "https://acme.test/",
+                {"brand": "Acme", "market": "Acme Dairy", "project": "Test", "belief": "Belief", "purpose": "Purpose", "pursuits": {}},
+                {"five_c": {}, "iag": {}, "sustainability_goals": []},
+                [],
+            )
+
+            def fake_post(_api_key, _payload):
+                return {
+                    "output": [
+                        {
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": json.dumps(fallback),
+                                }
+                            ]
+                        }
+                    ]
+                }
+
+            ai_synthesis.post_openai_response = fake_post
+            result = ai_synthesis.synthesize_workspace_draft(
+                company_name="Acme Dairy",
+                website_url="https://acme.test/",
+                profile=fallback["profile"],
+                analysis={"five_c": {}, "iag": {}, "sustainability_goals": []},
+                source_ledger=[],
+                documents=[],
+            )
+        finally:
+            ai_synthesis.post_openai_response = old_post
+            if old_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = old_key
+
+        self.assertEqual(result["synthesis_status"], "ai_generated")
+        self.assertEqual(result["workspace_draft"]["profile"]["market"], "Acme Dairy")
 
     def test_competitor_suggestion_parses_source_names(self):
         result = suggest_competitors_payload(
@@ -266,6 +360,7 @@ class Phase1EngineTest(unittest.TestCase):
         names = [item["name"] for item in result["suggestions"]]
         self.assertIn("Danone", names)
         self.assertTrue(all(item["selected"] is False for item in result["suggestions"]))
+        self.assertIn("synthesis_status", result)
 
 
 if __name__ == "__main__":

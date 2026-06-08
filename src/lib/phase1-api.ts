@@ -1,6 +1,11 @@
 import {
   companyProfile,
+  competitors,
+  culturalDrivers,
+  consumerStages,
+  needStates,
   recommendation,
+  strategicShifts,
   type EvidenceBlock,
   type FiveCTab,
   type GapInsight,
@@ -87,6 +92,19 @@ export type CompetitorSuggestion = {
   selected: boolean;
 };
 
+export type WorkspaceDraft = {
+  profile: typeof companyProfile;
+  gaps: Record<FiveCTab, GapInsight>;
+  jobToBeDone: string;
+  goals: SustainabilityGoal[];
+  recommendation: typeof recommendation;
+  strategicShifts: typeof strategicShifts;
+  competitors: typeof competitors;
+  culturalDrivers: typeof culturalDrivers;
+  consumerStages: typeof consumerStages;
+  needStates: typeof needStates;
+};
+
 export type AnalysisState = {
   status: "idle" | "loading" | "ready" | "error";
   message: string;
@@ -115,6 +133,9 @@ export type OnboardingResponse = {
   source_ledger: SourceLedgerEntry[];
   source_settings: SourceSettings;
   analysis: Phase1AnalysisResponse;
+  workspace_draft?: WorkspaceDraft;
+  synthesis_status?: "ai_generated" | "fallback_no_key" | "fallback_model_error" | "fallback_insufficient_evidence";
+  warnings?: string[];
 };
 
 const fiveCKeys: FiveCTab[] = ["summary", "company", "competition", "culture", "consumer", "category"];
@@ -218,6 +239,14 @@ function parseJsonResponse(responseText: string, response: Response) {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringOr(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
 export async function fileToUploadedEvidence(file: File): Promise<UploadedEvidence> {
   const dataUrl = await readFileAsDataUrl(file);
   const dataBase64 = dataUrl.split(",", 2)[1] || "";
@@ -304,6 +333,11 @@ export function mapPhase1ToFrontend(
   };
 }
 
+export function mapOnboardingToFrontend(response: OnboardingResponse): WorkspaceDraft {
+  const fallback = fallbackWorkspaceDraft(response);
+  return normalizeWorkspaceDraft(response.workspace_draft, fallback);
+}
+
 export function buildBaselineEvidenceText(
   profile: typeof companyProfile,
   jobToBeDone: string,
@@ -347,6 +381,210 @@ function mapGaps(analysis: Phase1AnalysisResponse): Record<FiveCTab, GapInsight>
       ];
     }),
   ) as Record<FiveCTab, GapInsight>;
+}
+
+function fallbackWorkspaceDraft(response: OnboardingResponse): WorkspaceDraft {
+  const mapped = mapPhase1ToFrontend(response.analysis, response.profile);
+  return {
+    profile: mapped.profile,
+    gaps: mapped.gaps,
+    jobToBeDone: mapped.jobToBeDone,
+    goals: mapped.goals,
+    recommendation: mapped.recommendation,
+    strategicShifts: strategicShiftsFromAnalysis(response.analysis),
+    competitors: [],
+    culturalDrivers: culturalDriversFromAnalysis(response.analysis),
+    consumerStages: consumerStagesFromAnalysis(response.analysis),
+    needStates: needStatesFromAnalysis(response.analysis),
+  };
+}
+
+function normalizeWorkspaceDraft(value: unknown, fallback: WorkspaceDraft): WorkspaceDraft {
+  if (!isRecord(value)) return fallback;
+  return {
+    profile: normalizeProfile(value.profile, fallback.profile),
+    gaps: normalizeGaps(value.gaps, fallback.gaps),
+    jobToBeDone: stringOr(value.jobToBeDone, fallback.jobToBeDone),
+    goals: Array.isArray(value.goals)
+      ? (value.goals as SustainabilityGoal[]).map(normalizeGoal).filter(Boolean)
+      : fallback.goals,
+    recommendation: normalizeRecommendation(value.recommendation, fallback.recommendation),
+    strategicShifts: normalizeStrategicShifts(value.strategicShifts, fallback.strategicShifts),
+    competitors: Array.isArray(value.competitors) ? (value.competitors as typeof competitors) : fallback.competitors,
+    culturalDrivers: Array.isArray(value.culturalDrivers)
+      ? (value.culturalDrivers as typeof culturalDrivers)
+      : fallback.culturalDrivers,
+    consumerStages: Array.isArray(value.consumerStages)
+      ? (value.consumerStages as typeof consumerStages)
+      : fallback.consumerStages,
+    needStates: Array.isArray(value.needStates) ? (value.needStates as typeof needStates) : fallback.needStates,
+  };
+}
+
+function normalizeProfile(value: unknown, fallback: typeof companyProfile) {
+  if (!isRecord(value)) return fallback;
+  const pursuits = isRecord(value.pursuits) ? value.pursuits : {};
+  return {
+    brand: stringOr(value.brand, fallback.brand),
+    market: stringOr(value.market, fallback.market),
+    project: stringOr(value.project, fallback.project),
+    belief: stringOr(value.belief, fallback.belief),
+    purpose: stringOr(value.purpose, fallback.purpose),
+    pursuits: {
+      product: stringOr(pursuits.product, fallback.pursuits.product),
+      platform: stringOr(pursuits.platform, fallback.pursuits.platform),
+      impact: stringOr(pursuits.impact, fallback.pursuits.impact),
+    },
+  };
+}
+
+function normalizeGaps(value: unknown, fallback: Record<FiveCTab, GapInsight>) {
+  if (!isRecord(value)) return fallback;
+  return Object.fromEntries(
+    fiveCKeys.map((key) => {
+      const gap = isRecord(value[key]) ? value[key] : {};
+      return [
+        key,
+        {
+          ...fallback[key],
+          ...gap,
+          key,
+          confidence: clampPercent(Number(gap.confidence ?? fallback[key].confidence)),
+          nextSteps: Array.isArray(gap.nextSteps)
+            ? gap.nextSteps.map(String).filter(Boolean)
+            : fallback[key].nextSteps,
+          evidence: Array.isArray(gap.evidence)
+            ? (gap.evidence as EvidenceBlock[])
+            : fallback[key].evidence,
+        },
+      ];
+    }),
+  ) as Record<FiveCTab, GapInsight>;
+}
+
+function normalizeGoal(value: SustainabilityGoal): SustainabilityGoal {
+  return {
+    id: stringOr(value.id, slugify(value.title || "goal")),
+    title: stringOr(value.title, "Evidence-backed commitment"),
+    description: stringOr(value.description, "Commitment requires stronger source evidence."),
+    category: normalizeCategory(value.category),
+    subcategory: stringOr(value.subcategory, normalizeCategory(value.category)),
+    type: value.type === "policy" || value.type === "target" || value.type === "initiative" ? value.type : "initiative",
+    status: normalizeStatus(value.status),
+    startYear: Number.isFinite(Number(value.startYear)) ? Number(value.startYear) : 2026,
+    endYear: Number.isFinite(Number(value.endYear)) ? Number(value.endYear) : 2030,
+    flagship: Boolean(value.flagship),
+  };
+}
+
+function normalizeRecommendation(value: unknown, fallback: typeof recommendation) {
+  if (!isRecord(value)) return fallback;
+  return {
+    ...fallback,
+    title: stringOr(value.title, fallback.title),
+    bestFor: stringOr(value.bestFor, fallback.bestFor),
+    headline: stringOr(value.headline, fallback.headline),
+    overview: stringOr(value.overview, fallback.overview),
+    outcomes: Array.isArray(value.outcomes) ? value.outcomes.map(String).filter(Boolean) : fallback.outcomes,
+  };
+}
+
+function normalizeStrategicShifts(value: unknown, fallback: typeof strategicShifts) {
+  if (!isRecord(value)) return fallback;
+  const competition = isRecord(value.competition) ? value.competition : {};
+  const culture = isRecord(value.culture) ? value.culture : {};
+  const consumer = isRecord(value.consumer) ? value.consumer : {};
+  const category = isRecord(value.category) ? value.category : {};
+  return {
+    competition: {
+      from: stringOr(competition.from, fallback.competition.from),
+      to: Array.isArray(competition.to)
+        ? competition.to.map(String).filter(Boolean)
+        : fallback.competition.to,
+    },
+    culture: {
+      from: stringOr(culture.from, fallback.culture.from),
+      to: stringOr(culture.to, fallback.culture.to),
+    },
+    consumer: {
+      from: stringOr(consumer.from, fallback.consumer.from),
+      to: stringOr(consumer.to, fallback.consumer.to),
+    },
+    category: {
+      from: stringOr(category.from, fallback.category.from),
+      to: stringOr(category.to, fallback.category.to),
+    },
+    job: stringOr(value.job, fallback.job),
+  };
+}
+
+function strategicShiftsFromAnalysis(analysis: Phase1AnalysisResponse): typeof strategicShifts {
+  return {
+    competition: {
+      from: analysis.five_c.competition?.from_state || analysis.five_c.competition?.summary || "Competitive evidence is still insufficient.",
+      to: [
+        analysis.five_c.competition?.to_state ||
+          "Collect stronger competitor and positioning evidence before defining the shift.",
+      ],
+    },
+    culture: {
+      from: analysis.five_c.culture?.from_state || analysis.five_c.culture?.summary || "Cultural evidence is still insufficient.",
+      to: analysis.five_c.culture?.to_state || "Collect stronger cultural source evidence.",
+    },
+    consumer: {
+      from: analysis.five_c.consumer?.from_state || analysis.five_c.consumer?.summary || "Consumer evidence is still insufficient.",
+      to: analysis.five_c.consumer?.to_state || "Collect stronger consumer source evidence.",
+    },
+    category: {
+      from: analysis.five_c.category?.from_state || analysis.five_c.category?.summary || "Category evidence is still insufficient.",
+      to: analysis.five_c.category?.to_state || "Collect stronger category source evidence.",
+    },
+    job:
+      analysis.five_c.category?.to_state ||
+      analysis.five_c.consumer?.to_state ||
+      "Define the job to be done after stronger source collection.",
+  };
+}
+
+function culturalDriversFromAnalysis(analysis: Phase1AnalysisResponse): typeof culturalDrivers {
+  const insight = analysis.five_c.culture;
+  return [
+    {
+      title: "Evidence-backed cultural signal",
+      selected: Boolean(insight?.summary),
+      confidence: clampPercent(insight?.confidence ?? 35),
+      observation: insight?.summary || "Cultural signal requires stronger source evidence.",
+      tension: insight?.from_state || "No source-backed cultural tension was found yet.",
+      people: "Audience implications require stronger source evidence.",
+      implication: insight?.to_state || "Rerun onboarding with stronger sources.",
+      sources: ["Backend analyzer"],
+    },
+  ];
+}
+
+function consumerStagesFromAnalysis(analysis: Phase1AnalysisResponse): typeof consumerStages {
+  const insight = analysis.five_c.consumer;
+  return [
+    {
+      stage: "Evaluation",
+      selected: Boolean(insight?.summary),
+      definition: insight?.summary || "Consumer journey signal requires stronger source evidence.",
+      barrier: insight?.from_state || "No source-backed consumer barrier was found yet.",
+      reviews: ["No review evidence was collected."],
+    },
+  ];
+}
+
+function needStatesFromAnalysis(analysis: Phase1AnalysisResponse): typeof needStates {
+  const insight = analysis.five_c.category;
+  return [
+    {
+      name: "Source-backed category need",
+      selected: Boolean(insight?.summary),
+      score: clampPercent(insight?.confidence ?? 35),
+      description: insight?.summary || "Category need state requires stronger source evidence.",
+    },
+  ];
 }
 
 function mapEvidence(insight?: BackendIagInsight): EvidenceBlock[] {
